@@ -58,21 +58,6 @@ if ( ! class_exists( 'DLP_Document_Deletion_Command' ) ) {
         private $last_post_id = null;
 
         /**
-         * Holds unique post titles to check for duplicates.
-         *
-         * @var array
-         */
-        private $unique_post_titles = array();
-
-        /**
-         * Holds the duplicate posts which have been deleted.
-         * This will allow us to log the deleted posts in a CSV file at the end of the batch
-         *
-         * @var array
-         */
-        private $stash_of_duplicate_dlp_doc_posts = array();
-
-        /**
          * Total number of duplicate DLP Document posts detected.
          *
          * @var int
@@ -80,22 +65,14 @@ if ( ! class_exists( 'DLP_Document_Deletion_Command' ) ) {
         private $total_duplicate_posts = 0;
 
         /**
-         * Holds the posts which have been deleted because the PDF file is missing.
-         * This will allow us to log the deleted posts in a CSV file at the end of the batch
+         * Array of post IDs which were deleted.
          *
          * @var array
          */
-        private $stash_of_missing_pdf_posts = array();
+        private $stash_deleted_dlp_doc_posts = array();
 
         /**
-         * Total number of DLP Document posts with a missing PDF file.
-         *
-         * @var int
-         */
-        private $total_missing_pdf_posts = 0;
-
-        /**
-         * Search for duplicate DLP Document files.
+         * Delete DLP Document Posts and associated files.
          *
          * @param array $args Positional arguments (not used).
          * @param array $assoc_args Associative arguments (e.g., --dry-run, --start-post-id, --batch-size).
@@ -126,17 +103,8 @@ if ( ! class_exists( 'DLP_Document_Deletion_Command' ) ) {
             }
             WP_CLI::log( "Batch size set to: {$this->batch_size}" );
 
-            // Fetch the past unique post titles from options
-            $saved_unique_post_titles = get_option( 'one-time-script-dlp-deduplication-unique-post-titles', array() );
-            if ( is_array( $saved_unique_post_titles ) ) {
-                $this->unique_post_titles = $saved_unique_post_titles;
-                WP_CLI::log( 'Loaded unique post records from options.' );
-            } else {
-                WP_CLI::log( 'No unique post records found in options.' );
-            }
-
             // Being the deduplication process
-            $this->deduplicate_dlp_docs();
+            $this->delete_dlp_docs();
         }
 
         /**
@@ -144,15 +112,14 @@ if ( ! class_exists( 'DLP_Document_Deletion_Command' ) ) {
          *
          * @param none
          * @return void
-         * @when after_wp_load
          */
-        public function deduplicate_dlp_docs(): void {
-            WP_CLI::log( 'Starting DLP Document deduplication...' );
+        public function delete_dlp_docs(): void {
+            WP_CLI::log( 'Starting DLP Document deletion...' );
 
             // Fetch DLP Document posts for this batch
             $dlp_doc_posts = $this->get_dlp_doc_posts();
             if ( empty( $dlp_doc_posts ) ) {
-                WP_CLI::log( 'No DLP Document posts found to deduplicate.' );
+                WP_CLI::log( 'No DLP Document posts found to delete.' );
                 return;
             }
             // Log the number of DLP Document posts found
@@ -163,75 +130,19 @@ if ( ! class_exists( 'DLP_Document_Deletion_Command' ) ) {
 
             // Loop through the dlp_doc posts and check for duplicates
             foreach ( $dlp_doc_posts as $post ) {
-                $post_title = $post->post_title;
-                $matching_post_title_id = null;
+                // Find and delete any attached PDF file
+                $attached_pdf_meta = $this->delete_pdf( $post->ID );
 
-                WP_CLI::log( "Checking post ID {$post->ID} with title '{$post_title}' for duplicates." );
+                // Log the post information and attached PDF file
+                // Once we have handled the PDF file, we need to delete the post
 
-                // Confirm if the post has a valid PDF file attached to it
-                $attached_pdf_meta = $this->determine_if_pdf_exists( $post );
-                if ( empty( $attached_pdf_meta ) ) {
-                    continue;
-                }
-
-                // Check if the post title is already in the unique titles array
-                $matching_post_title_id = array_search( $post_title, $this->unique_post_titles, true );
-                if ( ! empty( $matching_post_title_id ) ) {
-                    $this->handle_duplicate_post( $post, $attached_pdf_meta, $matching_post_title_id );
-                    continue;
-                } 
-
-                // Check if the post is a fuzzy duplicate
-                // These are post titles that may have a common slug
-                // but a unique post title because of -x suffixes which get added upon upload
-
-                // "-1" is a common suffix for duplicates, so we check for it
-                if ( str_contains( $post_title, '-1' ) ) {
-                    str_replace( '-1', '', $post_title );
-                    $matching_post_title_id = array_search( $post_title, $this->unique_post_titles, true );
-                    if ( ! empty( $matching_post_title_id ) ) {
-                        $this->handle_duplicate_post( $post, $attached_pdf_meta, $matching_post_title_id );
-                        continue;
-                    }
-                }
-
-                // "-2" is a common suffix for duplicates, so we check for it
-                if ( str_contains( $post_title, '-2' ) ) {
-                    str_replace( '-2', '', $post_title );
-                    $matching_post_title_id = array_search( $post_title, $this->unique_post_titles, true );
-                    if ( ! empty( $matching_post_title_id ) ) {
-                        $this->handle_duplicate_post( $post, $attached_pdf_meta, $matching_post_title_id );
-                        continue;
-                    }
-                }
-
-                // "-pdf" is a common suffix for duplicates, so we check for it
-                if ( str_contains( $post_title, '-pdf' ) ) {
-                    str_replace( '-pdf', '', $post_title );
-                    $matching_post_title_id = array_search( $post_title, $this->unique_post_titles, true );
-                    if ( ! empty( $matching_post_title_id ) ) {
-                        $this->handle_duplicate_post( $post, $attached_pdf_meta, $matching_post_title_id );
-                        continue;
-                    }
-                }
-
-                // If we reach here, the post is unique and valid
-                // Add the unmodified post title to the unique titles array
-                $this->unique_post_titles[$post->ID] = $post->post_title;
             }
 
-            // Save the unique post titles to options
-            $this->save_unique_post_titles_to_options();
-
-            // Handle logging the results
-            $this->log_duplicate_post_results();
-            $this->log_missing_pdf_results();
-
-            // Log the number of unique post titles found
-            WP_CLI::log( 'Unique DLP Document posts found: ' . count( $this->unique_post_titles ) );
+            // Save the deleted post information to a CSV file
+            $this->log_deleted_post_results();
 
             // Your deduplication logic here, using $this->dry_run and $this->start_post_id to control actions.
-            WP_CLI::success( "DLP Document deduplication completed for post ID #{$this->start_post_id} through #{$this->last_post_id}." );
+            WP_CLI::success( "DLP Document deletion completed for post ID #{$this->start_post_id} through #{$this->last_post_id}." );
         }
 
         /**
@@ -325,19 +236,6 @@ if ( ! class_exists( 'DLP_Document_Deletion_Command' ) ) {
         }
 
         /**
-         * Save the unique post titles array to the wp_options table.
-         * This allows the script to check previously processed titles for duplicates
-         *
-         * @param none
-         * @return void
-         */
-        private function save_unique_post_titles_to_options(): void {
-            if ( ! empty( $this->unique_post_titles ) ) {
-                update_option( 'one-time-script-dlp-deduplication-unique-post-titles', $this->unique_post_titles );
-            }
-        }
-
-        /**
          * Handle a duplicate post when it is found.
          *
          * @param object $post The post object that is a duplicate.
@@ -418,47 +316,46 @@ if ( ! class_exists( 'DLP_Document_Deletion_Command' ) ) {
          * @param object $post The post object that is a DLP Document.
          * @return array True if the PDF file exists, false otherwise.
          */
-        private function determine_if_pdf_exists( object $dlp_document_post ): array {
+        private function delete_pdf( object $dlp_document_post_id ): array {
             // We assume the DLP Document post has a PDF file attached to it
             $attached_pdf_meta = [];
 
             // Confirm that PDF file is attached by checking the post meta
-            $pdf_link_type = get_post_meta( $dlp_document_post->ID, '_dlp_document_link_type', true ) ?? null;
+            $pdf_link_type = get_post_meta( $dlp_document_post_id, '_dlp_document_link_type', true ) ?? null;
 
             switch ( $pdf_link_type ) {
                 case 'url':
-                    $pdf_file_path = get_post_meta( $dlp_document_post->ID, '_dlp_direct_link_url', true ) ?? null;
-                    // If the postmeta does not exist, the PDF file is missing
-                    if ( null === $pdf_file_path ) {
-                        $this->handle_missing_pdf_file( $dlp_document_post, $pdf_link_type, null );
-                    }
+                    $pdf_file_path = get_post_meta( $dlp_document_post_id, '_dlp_direct_link_url', true ) ?? null;
+                    // If the postmeta does not exist, the PDF file is missing so we return an empty array
+                    if ( $pdf_file_path && file_exists( $pdf_file_path ) ) {
+                        $attached_pdf_meta['link_type'] = $pdf_link_type;
+                        $attached_pdf_meta['pdf_file_path'] = $pdf_file_path;
+                        $attached_pdf_meta['pdf_post_id'] = attachment_url_to_postid( $pdf_file_path );
 
-                    // If the postmeta exists, check that the file exists
-                    if ( ($pdf_file_path && ! file_exists( $pdf_file_path ) ) || null === $pdf_file_path ) {
-                        $this->handle_missing_pdf_file( $dlp_document_post, $pdf_link_type, $pdf_file_path );
+                        if ( wp_delete_post( $attached_pdf_meta['pdf_post_id'], true ) ) {
+                            $attached_pdf_meta['file_deleted'] = true;
+                        } else {
+                            $attached_pdf_meta['file_deleted'] = unlink( $attached_pdf_meta['pdf_file_path'] );
+                        }
                     }
-
-                    $attached_pdf_meta['link_type'] = $pdf_link_type;
-                    $attached_pdf_meta['pdf_file'] = $pdf_file_path;
                     break;
                 case 'file':
-                    $pdf_post_id = get_post_meta( $dlp_document_post->ID, '_dlp_attached_file_id', true ) ?? null;
-                    // If the postmeta does not exist, we assume the PDF file is missing
-                    if ( null === $pdf_post_id ) {
-                        $this->handle_missing_pdf_file( $dlp_document_post, $pdf_link_type, null );
-                    }
-
-                    // If the postmeta contains a document post ID, check that the document post exists
+                    $pdf_post_id = get_post_meta( $dlp_document_post_id, '_dlp_attached_file_id', true ) ?? null;
+                    // If the postmeta does not exist, we assume the PDF file is missing so we return an empty array
+                    // If the postmeta contains a pdf post ID, check that the pdf post exists
                     if ( ( $pdf_post_id && ! get_post_status( $pdf_post_id ) ) || null === $pdf_post_id ) {
-                        $this->handle_missing_pdf_file( $dlp_document_post, $pdf_link_type, $pdf_post_id );
+                        $attached_pdf_meta['link_type'] = $pdf_link_type;
+                        $attached_pdf_meta['pdf_file_path'] = get_attached_file( $pdf_post_id );
+                        $attached_pdf_meta['pdf_post_id'] = $pdf_post_id;
+                        if ( wp_delete_post( $pdf_post_id, true ) ) {
+                            $attached_pdf_meta['file_deleted'] = true;
+                        } else {
+                            $attached_pdf_meta['file_deleted'] = unlink( $attached_pdf_meta['pdf_file_path'] );
+                        }
                     }
-
-                    $attached_pdf_meta['link_type'] = $pdf_link_type;
-                    $attached_pdf_meta['pdf_file'] = $pdf_post_id;
                     break;
                 default:
-                    // If the DLP Document post is neither a direct link nor a media library attachment, it should be deleted
-                    $this->handle_missing_pdf_file( $dlp_document_post, $pdf_link_type, null );
+                    // If the link type is not recognized, we assume the PDF file is missing so we return an empty array
                     break;
             }
 
