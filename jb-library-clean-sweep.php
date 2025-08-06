@@ -157,7 +157,7 @@ if ( ! class_exists( 'DLP_Document_Deletion_Command' ) ) {
                 return; // If a start post ID is provided, it should always take precedence.
             }
 
-            $saved_start_post_id = get_option( 'one-time-script-dlp-deduplication-start-post-id' );
+            $saved_start_post_id = get_option( 'dlp-document-deletion-start-post-id' );
             if ( $saved_start_post_id ) {
                 $this->start_post_id = intval( $saved_start_post_id );
                 WP_CLI::log( "Resuming from saved post ID: {$this->start_post_id}" );
@@ -231,81 +231,7 @@ if ( ! class_exists( 'DLP_Document_Deletion_Command' ) ) {
          */
         private function save_last_post_id_to_options(): void {
             if ( ! is_null( $this->last_post_id ) ) {
-                update_option( 'one-time-script-dlp-deduplication-start-post-id', $this->last_post_id );
-            }
-        }
-
-        /**
-         * Handle a duplicate post when it is found.
-         *
-         * @param object $post The post object that is a duplicate.
-         * @param int|string $matching_post_title_id The IDs of posts with the same title.
-         * @return void
-         */
-        private function handle_duplicate_post( object $duplicate_post, array $attached_pdf_meta, int|string $matching_post_title_id ): void {
-            $this->total_duplicate_posts++;
-            // Determine if the PDF is attached via a post or URL
-            $matching_post_pdf_link_type = get_post_meta( $matching_post_title_id, '_dlp_document_link_type', true ) ?? null;
-
-            // Set the meta key based on the link type
-            $matching_post_pdf_meta_key = '';
-            if ( 'url' === $matching_post_pdf_link_type ) {
-                $matching_post_pdf_meta_key = '_dlp_direct_link_url';
-            }
-
-            if ( 'file' === $matching_post_pdf_link_type ) {
-                $matching_post_pdf_meta_key = '_dlp_attached_file_id';
-            }
-
-            $matching_attached_pdf = '';
-            if ( ! empty ( $matching_post_pdf_meta_key ) ) {
-                $matching_attached_pdf = get_post_meta( $matching_post_title_id, $matching_post_pdf_meta_key, true );
-            }
-            $duplicate_attached_pdf = $attached_pdf_meta['pdf_file'];
-
-            $duplicate_post_message =
-                "
-                    Duplicate DLP Document found. Original post ID {$matching_post_title_id} with title '{$this->unique_post_titles[$matching_post_title_id]}'
-                    ({$matching_attached_pdf}).
-                    Duplicate post ID {$duplicate_post->ID} has title '{$duplicate_post->post_title}' ({$duplicate_attached_pdf}).
-                ";
-
-            if ( $this->dry_run ) {
-                WP_CLI::log( "Dry run: " . $duplicate_post_message );
-                if ( ! $this->skip_confirmations ) {
-                    WP_CLI::confirm( 'Do you want to log the duplicate DLP Document post to CSV?', 'yes' );
-                }
-                $this->gather_duplicate_posts_data(
-                    $duplicate_post,
-                    $attached_pdf_meta,
-                    $matching_post_title_id,
-                    $matching_post_pdf_link_type,
-                    $matching_attached_pdf
-                );
-                return;
-            }
-
-            if ( ! $this->dry_run ) {
-                // Logic to handle duplicates, e.g., delete or mark as duplicate
-                WP_CLI::log( $duplicate_post_message);
-                if ( ! $this->skip_confirmations ) {
-                    WP_CLI::confirm( 'Do you want to delete the duplicate DLP Document post?', 'yes' );
-                }
-                $is_duplicate_logged = $this->gather_duplicate_posts_data(
-                    $duplicate_post,
-                    $attached_pdf_meta,
-                    $matching_post_title_id,
-                    $matching_post_pdf_link_type,
-                    $matching_attached_pdf
-                );
-
-                if ( $is_duplicate_logged ) {
-                    $dlp_doc_taxonomies = get_object_taxonomies( 'dlp_document' );
-                    wp_delete_object_term_relationships( $duplicate_post->ID, $dlp_doc_taxonomies );
-                    wp_delete_post( $duplicate_post->ID, true );
-                }
-                WP_CLI::log( "Deleted duplicate post ID {$duplicate_post->ID}." );
-                return;
+                update_option( 'dlp-document-deletion-start-post-id', $this->last_post_id );
             }
         }
 
@@ -575,7 +501,7 @@ if ( ! class_exists( 'DLP_Document_Deletion_Command' ) ) {
     WP_CLI::add_command( 'dlp-document-delete', 'DLP_Document_Deduplication_Command' );
 }
 
-if ( class_exists( 'DLP_Document_Deduplication_Command' ) ) {
+if ( class_exists( 'DLP_Document_Deletion_Command' ) ) {
 
     /**
      * Clear out fields stored in wp_options related to DLP Document deduplication.
@@ -587,12 +513,11 @@ if ( class_exists( 'DLP_Document_Deduplication_Command' ) ) {
      * @param none
      * @return void
      */
-    function clear_dlp_document_deduplication_options(): void {
-        delete_option( 'one-time-script-dlp-deduplication-start-post-id' );
-        delete_option( 'one-time-script-dlp-deduplication-unique-post-titles' );
-        WP_CLI::log( 'Cleared DLP Document deduplication options.' );
+    function clear_dlp_document_deletion_options(): void {
+        delete_option( 'dlp-document-deletion-start-post-id' );
+        WP_CLI::log( 'Cleared DLP Document deletion options.' );
     }
-    WP_CLI::add_command( 'dlp-document-delete-clear-options', 'clear_dlp_document_deduplication_options' );
+    WP_CLI::add_command( 'dlp-document-delete-clear-options', 'clear_dlp_document_deletion_options' );
 
     /**
      * Clear out CSV Log files stored in jb-deduplication/logs related to DLP Document deduplication.
