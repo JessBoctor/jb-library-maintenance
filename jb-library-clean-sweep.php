@@ -332,10 +332,17 @@ if ( ! class_exists( 'DLP_Document_Deletion_Command' ) ) {
                         $attached_pdf_meta['pdf_file_path'] = $pdf_file_path;
                         $attached_pdf_meta['pdf_post_id'] = attachment_url_to_postid( $pdf_file_path );
 
-                        if ( wp_delete_post( $attached_pdf_meta['pdf_post_id'], true ) ) {
-                            $attached_pdf_meta['file_deleted'] = true;
+                        if ( ! $this->dry_run ) {
+                            // If the PDF file exists, delete it
+                            if ( wp_delete_post( $attached_pdf_meta['pdf_post_id'], true ) ) {
+                                $attached_pdf_meta['file_deleted'] = true;
+                            } else {
+                                $attached_pdf_meta['file_deleted'] = unlink( $attached_pdf_meta['pdf_file_path'] );
+                            }
+                            WP_CLI::log( "Deleted PDF file at {$pdf_file_path}." );
                         } else {
-                            $attached_pdf_meta['file_deleted'] = unlink( $attached_pdf_meta['pdf_file_path'] );
+                            WP_CLI::log( "Dry run: Would delete PDF file at {$pdf_file_path}." );
+                            $attached_pdf_meta['file_deleted'] = false;
                         }
                     }
                     break;
@@ -347,10 +354,24 @@ if ( ! class_exists( 'DLP_Document_Deletion_Command' ) ) {
                         $attached_pdf_meta['link_type'] = $pdf_link_type;
                         $attached_pdf_meta['pdf_file_path'] = get_attached_file( $pdf_post_id );
                         $attached_pdf_meta['pdf_post_id'] = $pdf_post_id;
-                        if ( wp_delete_post( $pdf_post_id, true ) ) {
-                            $attached_pdf_meta['file_deleted'] = true;
+
+                        $pdf_file_path = $attached_pdf_meta['pdf_file_path'];
+                        if ( ! $this->dry_run ) {
+                            // Delete the file
+                            if ( wp_delete_post( $pdf_post_id, true ) ) {
+                                $attached_pdf_meta['file_deleted'] = true;
+                            } else {
+                                $attached_pdf_meta['file_deleted'] = unlink( $attached_pdf_meta['pdf_file_path'] );
+                            }
+                            // Log the deletion
+                            if ( ! $attached_pdf_meta['file_deleted'] ) {
+                                WP_CLI::warning( "Failed to delete PDF file at {$pdf_file_path}." );
+                            } else {
+                                WP_CLI::log( "Deleted PDF file at {$pdf_file_path}." );
+                            }
                         } else {
-                            $attached_pdf_meta['file_deleted'] = unlink( $attached_pdf_meta['pdf_file_path'] );
+                            WP_CLI::log( "Dry run: Would delete PDF file at {$pdf_file_path}." );
+                            $attached_pdf_meta['file_deleted'] = false;
                         }
                     }
                     break;
