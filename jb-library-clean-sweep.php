@@ -258,10 +258,10 @@ if ( ! class_exists( 'DLP_Document_Deletion_Command' ) ) {
          * Get the PDF file path or post ID for the DLP Document post.
          * If the PDF file is missing, handle it accordingly.
          *
-         * @param object $post The post object that is a DLP Document.
-         * @return array True if the PDF file exists, false otherwise.
+         * @param string $post_id The post ID for the DLP Document.
+         * @return array Array containing the PDF metadata or an empty array.
          */
-        private function delete_pdf( object $dlp_document_post_id ): array {
+        private function delete_pdf( string $dlp_document_post_id ): array {
             // We assume the DLP Document post has a PDF file attached to it
             $attached_pdf_meta = [];
 
@@ -324,7 +324,7 @@ if ( ! class_exists( 'DLP_Document_Deletion_Command' ) ) {
                     // If the link type is not recognized, we assume the PDF file is missing so we return an empty array
                     break;
             }
-
+            // To-do: this is only returning an empty array. Not sure why.
             return $attached_pdf_meta;
         }
 

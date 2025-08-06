@@ -17,5 +17,5 @@ defined( 'ABSPATH' ) or die( 'No script kiddies please!' );
 
 define( 'JB_LIBRARY_MAINTENANCE_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 
-require_once JB_LIBRARY_MAINTENANCE_PLUGIN_DIR . 'jb-pdf-media-deduplication.php';
-require_once JB_LIBRARY_MAINTENANCE_PLUGIN_DIR . 'jb-dlp-document-deduplication.php';
+require_once JB_LIBRARY_MAINTENANCE_PLUGIN_DIR . 'jb-library-clean-sweep.php';
+//require_once JB_LIBRARY_MAINTENANCE_PLUGIN_DIR . 'jb-dlp-document-deduplication.php';
