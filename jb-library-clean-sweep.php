@@ -135,6 +135,12 @@ if ( ! class_exists( 'DLP_Document_Deletion_Command' ) ) {
 
                 // Log the post information and attached PDF file
                 // Once we have handled the PDF file, we need to delete the post
+                if ( ! $this->dry_run ) {
+                    WP_CLI::log( "Deleting DLP Document post ID #{$post->ID} with title '{$post->post_title}'." );
+                    wp_delete_post( $post->ID, true );
+                } else {
+                    WP_CLI::log( "Dry run: Would delete DLP Document post ID #{$post->ID} with title '{$post->post_title}'." );
+                }
 
             }
 
@@ -456,49 +462,8 @@ if ( ! class_exists( 'DLP_Document_Deletion_Command' ) ) {
                 fclose( $csv_file_path );
             }
         }
-
-        /**
-         * Handle logging missing PDF results.
-         * @return void
-         */
-        private function log_missing_pdf_results(): void {
-            // Log the number of duplicate posts found
-            WP_CLI::log( "Total posts with missing PDF file found: {$this->total_missing_pdf_posts}" );
-
-            // Log the number of duplicate posts recorded or deleted
-            if ( $this->dry_run ) {
-                WP_CLI::log( 'Total posts with missing PDF file logged: ' . count( $this->stash_of_missing_pdf_posts ) );
-            } else {
-                WP_CLI::log( 'Total posts with missing PDF file deleted: ' . count( $this->stash_of_missing_pdf_posts )  );
-            }
-
-            // Write the duplicate posts to a CSV file
-            if (  ! empty( $this->stash_of_missing_pdf_posts ) ) {
-                $csv_prefix = $this->dry_run ? 'dry-run-' : 'deleted-';
-                $csv_file_path = fopen( JB_DEDUP_PLUGIN_DIR . 'logs/' . $csv_prefix . 'dlp-doc-posts-missing-pdf-' . gmdate( "Ymd-His", time() ) . '.csv', 'x' );
-                if ( ! $csv_file_path ) {
-                    WP_CLI::error( 'Failed to create CSV file for missing PDF posts.' );
-                    return;
-                }
-
-                // Write the header and data to the CSV file
-                WP_CLI\Utils\write_csv(
-                    $csv_file_path,
-                    $this->stash_of_missing_pdf_posts,
-                    array(
-                        'dlp_document_post_id',
-                        'dlp_document_post_title',
-                        'pdf_link_type',
-                        'missing_pdf_id_or_url',
-                    ),
-                );
-
-                WP_CLI::log( "Missing PDF posts written to CSV file: {$csv_file_path}" );
-                fclose( $csv_file_path );
-            }
-        }
     }
-    WP_CLI::add_command( 'dlp-document-delete', 'DLP_Document_Deduplication_Command' );
+    WP_CLI::add_command( 'dlp-document-delete', 'DLP_Document_Deletion_Command' );
 }
 
 if ( class_exists( 'DLP_Document_Deletion_Command' ) ) {
