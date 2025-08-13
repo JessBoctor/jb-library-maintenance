@@ -30,11 +30,11 @@ if ( ! class_exists( 'DLP_Document_Deletion_Command' ) ) {
         private $skip_confirmations = false;
 
         /**
-         * Whether to run in test mode (dry run).
+         * Whether to run in for real.
          *
          * @var bool
          */
-        private $dry_run = false;
+        private $for_real = false;
 
         /**
          * Number of posts to process per batch.
@@ -81,11 +81,11 @@ if ( ! class_exists( 'DLP_Document_Deletion_Command' ) ) {
          */
         public function __invoke( $args, $assoc_args ): void {
             // Determine if we are running in dry run mode
-            $this->dry_run = isset( $assoc_args['dry-run'] );
-            if ( $this->dry_run ) {
-                WP_CLI::log( 'Running in dry run mode. No changes will be made.' );
+            $this->for_real = isset( $assoc_args['for-real'] );
+            if ( $this->for_real ) {
+                WP_CLI::confirm( 'Running in live mode. Documents and PDFs will be deleted. Continue?' );
             } else {
-                WP_CLI::log( 'Running in live mode. Changes will be applied.' );
+                WP_CLI::log( 'Running in dry run mode. No changes will be made.' );
             }
 
             // Determine if we are running in dry run mode
@@ -143,7 +143,7 @@ if ( ! class_exists( 'DLP_Document_Deletion_Command' ) ) {
                 $this->stash_deleted_dlp_doc_posts[$post->ID]['dlp_document_post_date'] = $post->post_date;
 
                 // Once we have handled the PDF file, we need to delete the post
-                if ( ! $this->dry_run ) {
+                if ( $this->for_real ) {
                     WP_CLI::log( "Deleting DLP Document post ID #{$post->ID} with title '{$post->post_title}'." );
                     wp_delete_post( $post->ID, true );
                     $this->total_deleted_posts++;
@@ -277,7 +277,7 @@ if ( ! class_exists( 'DLP_Document_Deletion_Command' ) ) {
                         $attached_pdf_meta['pdf_file_path'] = $pdf_file_path;
                         $attached_pdf_meta['pdf_post_id'] = attachment_url_to_postid( $pdf_file_path );
 
-                        if ( ! $this->dry_run ) {
+                        if ( $this->for_real ) {
                             // If the PDF file exists, delete it
                             if ( wp_delete_post( $attached_pdf_meta['pdf_post_id'], true ) ) {
                                 $attached_pdf_meta['file_deleted'] = true;
@@ -301,7 +301,7 @@ if ( ! class_exists( 'DLP_Document_Deletion_Command' ) ) {
                         $attached_pdf_meta['pdf_post_id'] = $pdf_post_id;
 
                         $pdf_file_path = $attached_pdf_meta['pdf_file_path'];
-                        if ( ! $this->dry_run ) {
+                        if ( $this->for_real ) {
                             // Delete the file
                             if ( wp_delete_post( $pdf_post_id, true ) ) {
                                 $attached_pdf_meta['file_deleted'] = true;
@@ -338,7 +338,7 @@ if ( ! class_exists( 'DLP_Document_Deletion_Command' ) ) {
 
             // Write the duplicate posts to a CSV file
             if (  ! empty( $this->stash_deleted_dlp_doc_posts ) ) {
-                $csv_prefix = $this->dry_run ? 'dry-run-' : 'for-real-';
+                $csv_prefix = $this->for_real ? 'for-real-' : 'dry-run-';
                 $csv_file_path = fopen( JB_LIBRARY_MAINTENANCE_PLUGIN_DIR . 'logs/' . $csv_prefix . 'deleted-dlp-doc-posts-' . gmdate( "Ymd-His", time() ) . '.csv', 'x' );
                 if ( ! $csv_file_path ) {
                     WP_CLI::error( 'Failed to create CSV file for duplicate posts.' );
