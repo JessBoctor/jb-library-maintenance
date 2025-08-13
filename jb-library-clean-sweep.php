@@ -163,6 +163,9 @@ if ( ! class_exists( 'DLP_Document_Deletion_Command' ) ) {
 
             }
 
+            // Clean up the terms for the deleted posts
+            $this->clean_up_document_terms();
+
             // Save the deleted post information to a CSV file
             $this->log_deleted_post_results();
 
@@ -337,6 +340,62 @@ if ( ! class_exists( 'DLP_Document_Deletion_Command' ) ) {
         }
 
         /**
+         * Clean up terms associated with deleted DLP Document posts.
+         * This removes any terms that are no longer associated with any posts.
+         * @param none
+         * @return void
+         */
+        private function clean_up_document_terms(): void {
+            // Get all document tags associated with the DLP Document post type
+            $dlp_document_tags = get_terms(
+                array(
+                    'taxonomy'   => array(
+                        'doc_tags',
+                        'doc_author',
+                        'file_type',
+                        'document_download',
+                    ),
+                    'hide_empty' => false,
+                )
+            );
+            write_log( $dlp_document_tags );
+
+            if ( is_wp_error( $dlp_document_tags ) ) {
+                WP_CLI::warning( 'Failed to retrieve terms for cleanup.' );
+                return;
+            }
+
+            foreach ( $dlp_document_tags as $tag ) {
+                if ( 0 === $tag->count ) {
+                    if ( $this->for_real ) {
+                        // Delete the term if it has no associated posts
+                        $deleted = wp_delete_term( $tag->term_id, $tag->taxonomy );
+                        if ( is_wp_error( $deleted ) ) {
+                            WP_CLI::warning( "Failed to delete term '{$tag->name}' (ID: {$tag->term_id})." );
+                        } else {
+                            WP_CLI::log( "Deleted term '{$tag->name}' (ID: {$tag->term_id})." );
+                        }
+                    } else {
+                        WP_CLI::log( "Dry run: Would delete term '{$tag->name}' (ID: {$tag->term_id})." );
+                    }
+                }
+            }
+
+            // Update the term counts for all posts - This includes posts outside of DLP Document
+            global $wpdb;
+            $wpdb->query(
+                "
+                UPDATE wp_term_taxonomy tt
+                SET count = (SELECT count(p.ID)
+                FROM wp_term_relationships tr
+                LEFT JOIN wp_posts p ON p.ID = tr.object_id
+                WHERE tr.term_taxonomy_id = tt.term_taxonomy_id)
+                "
+            );
+            WP_CLI::log( 'Updated term counts for all taxonomies.' );
+        }
+
+        /**
          * Handle logging duplicate posts results.
          * @return void
          */
@@ -372,7 +431,7 @@ if ( ! class_exists( 'DLP_Document_Deletion_Command' ) ) {
                     ),
                 );
 
-                WP_CLI::log( "Duplicate posts written to CSV file: {$csv_file_path}" );
+                WP_CLI::log( "Deleted document posts and PDFs written to CSV file: {$csv_file_path}" );
                 fclose( $csv_file_path );
             }
         }
