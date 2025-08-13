@@ -341,8 +341,10 @@ if ( ! class_exists( 'DLP_Document_Deletion_Command' ) ) {
          * @return void
          */
         private function log_deleted_post_results(): void {
-            // Log the number of duplicate posts found
-            WP_CLI::log( "Total duplicate posts found: {$this->total_deleted_posts}" );
+            if ( $this->for_real ) {
+                // Log the number of deleted posts
+                WP_CLI::log( "Total Document posts deleted: {$this->total_deleted_posts}" );
+            }
 
             // Write the duplicate posts to a CSV file
             if (  ! empty( $this->stash_deleted_dlp_doc_posts ) ) {
