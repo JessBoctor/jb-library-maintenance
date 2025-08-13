@@ -132,11 +132,17 @@ if ( ! class_exists( 'DLP_Document_Deletion_Command' ) ) {
             foreach ( $dlp_doc_posts as $post ) {
                 // Find and delete any attached PDF file
                 $attached_pdf_meta = $this->delete_pdf( $post->ID );
-                $this->stash_deleted_dlp_doc_posts[$post->ID]['pdf_link_type'] = $attached_pdf_meta['pdf_link_type'] ?? '';
-                $this->stash_deleted_dlp_doc_posts[$post->ID]['pdf_post_id']   = $attached_pdf_meta['pdf_post_id'] ?? '';
-                $this->stash_deleted_dlp_doc_posts[$post->ID]['pdf_file_path'] = $attached_pdf_meta['pdf_file_path'] ?? '';
-                $this->stash_deleted_dlp_doc_posts[$post->ID]['file_deleted']  = $attached_pdf_meta['file_deleted'] ?? '';
-
+                if ( ! empty( $attached_pdf_meta ) ) {
+                    $this->stash_deleted_dlp_doc_posts[$post->ID]['pdf_link_type'] = $attached_pdf_meta['pdf_link_type'] ?? '';
+                    $this->stash_deleted_dlp_doc_posts[$post->ID]['pdf_post_id']   = $attached_pdf_meta['pdf_post_id'] ?? '';
+                    $this->stash_deleted_dlp_doc_posts[$post->ID]['pdf_file_path'] = $attached_pdf_meta['pdf_file_path'] ?? '';
+                    $this->stash_deleted_dlp_doc_posts[$post->ID]['file_deleted']  = $attached_pdf_meta['file_deleted'] ?? '';
+                } else {
+                    $this->stash_deleted_dlp_doc_posts[$post->ID]['pdf_link_type'] = '';
+                    $this->stash_deleted_dlp_doc_posts[$post->ID]['pdf_post_id']   = '';
+                    $this->stash_deleted_dlp_doc_posts[$post->ID]['pdf_file_path'] = '';
+                    $this->stash_deleted_dlp_doc_posts[$post->ID]['file_deleted']  = '';
+                }
                 // Log the post information and attached PDF file
                 $this->stash_deleted_dlp_doc_posts[$post->ID]['dlp_documetn_post_id'] = $post->ID;
                 $this->stash_deleted_dlp_doc_posts[$post->ID]['dlp_documetn_post_title'] = $post->post_title;
@@ -267,64 +273,66 @@ if ( ! class_exists( 'DLP_Document_Deletion_Command' ) ) {
 
             // Confirm that PDF file is attached by checking the post meta
             $pdf_link_type = get_post_meta( $dlp_document_post_id, '_dlp_document_link_type', true ) ?? null;
+            if ( $pdf_link_type ) {
+                switch ( $pdf_link_type ) {
+                    case 'url':
+                        $pdf_file_path = get_post_meta( $dlp_document_post_id, '_dlp_direct_link_url', true ) ?? null;
+                        // If the postmeta does not exist, the PDF file is missing so we return an empty array
+                        if ( $pdf_file_path ) {
+                            $attached_pdf_meta['pdf_link_type'] = $pdf_link_type;
+                            $attached_pdf_meta['pdf_file_path'] = $pdf_file_path;
+                            $attached_pdf_meta['pdf_post_id'] = attachment_url_to_postid( $pdf_file_path );
 
-            switch ( $pdf_link_type ) {
-                case 'url':
-                    $pdf_file_path = get_post_meta( $dlp_document_post_id, '_dlp_direct_link_url', true ) ?? null;
-                    // If the postmeta does not exist, the PDF file is missing so we return an empty array
-                    if ( $pdf_file_path && file_exists( $pdf_file_path ) ) {
-                        $attached_pdf_meta['pdf_link_type'] = $pdf_link_type;
-                        $attached_pdf_meta['pdf_file_path'] = $pdf_file_path;
-                        $attached_pdf_meta['pdf_post_id'] = attachment_url_to_postid( $pdf_file_path );
-
-                        if ( $this->for_real ) {
-                            // If the PDF file exists, delete it
-                            if ( wp_delete_post( $attached_pdf_meta['pdf_post_id'], true ) ) {
-                                $attached_pdf_meta['file_deleted'] = true;
+                            if ( $this->for_real ) {
+                                // If the PDF file exists, delete it
+                                $attached_pdf_meta['file_deleted'] = wp_delete_post( $attached_pdf_meta['pdf_post_id'], true );
+                                if ( ! $attached_pdf_meta['file_deleted'] ) {
+                                    $attached_pdf_meta['file_deleted'] = unlink( $attached_pdf_meta['pdf_file_path'] );
+                                }
+                                // Log the deletion
+                                if ( ! $attached_pdf_meta['file_deleted'] ) {
+                                    WP_CLI::warning( "Failed to delete PDF file at {$pdf_file_path}." );
+                                } else {
+                                    WP_CLI::log( "Deleted PDF file at {$pdf_file_path}." );
+                                }
                             } else {
-                                $attached_pdf_meta['file_deleted'] = unlink( $attached_pdf_meta['pdf_file_path'] );
+                                WP_CLI::log( "Dry run: Would delete PDF file at {$pdf_file_path}." );
+                                $attached_pdf_meta['file_deleted'] = false;
                             }
-                            WP_CLI::log( "Deleted PDF file at {$pdf_file_path}." );
-                        } else {
-                            WP_CLI::log( "Dry run: Would delete PDF file at {$pdf_file_path}." );
-                            $attached_pdf_meta['file_deleted'] = false;
                         }
-                    }
-                    break;
-                case 'file':
-                    $pdf_post_id = get_post_meta( $dlp_document_post_id, '_dlp_attached_file_id', true ) ?? null;
-                    // If the postmeta does not exist, we assume the PDF file is missing so we return an empty array
-                    // If the postmeta contains a pdf post ID, check that the pdf post exists
-                    if ( ( $pdf_post_id && ! get_post_status( $pdf_post_id ) ) || null === $pdf_post_id ) {
-                        $attached_pdf_meta['pdf_link_type'] = $pdf_link_type;
-                        $attached_pdf_meta['pdf_file_path'] = get_attached_file( $pdf_post_id );
-                        $attached_pdf_meta['pdf_post_id'] = $pdf_post_id;
+                        break;
+                    case 'file':
+                        $pdf_post_id = get_post_meta( $dlp_document_post_id, '_dlp_attached_file_id', true ) ?? null;
+                        if ( $pdf_post_id ) {
+                            $attached_pdf_meta['pdf_link_type'] = $pdf_link_type;
+                            $attached_pdf_meta['pdf_file_path'] = get_attached_file( $pdf_post_id );
+                            $attached_pdf_meta['pdf_post_id'] = $pdf_post_id;
 
-                        $pdf_file_path = $attached_pdf_meta['pdf_file_path'];
-                        if ( $this->for_real ) {
-                            // Delete the file
-                            if ( wp_delete_post( $pdf_post_id, true ) ) {
-                                $attached_pdf_meta['file_deleted'] = true;
+                            $pdf_file_path = $attached_pdf_meta['pdf_file_path'];
+                            if ( $this->for_real ) {
+                                // Delete the file
+                                $attached_pdf_meta['file_deleted'] = wp_delete_attachment( $pdf_post_id, true );
+                                if ( ! $attached_pdf_meta['file_deleted'] ) {
+                                    $attached_pdf_meta['file_deleted'] = unlink( $attached_pdf_meta['pdf_file_path'] );
+                                }
+                                // Log the deletion
+                                if ( ! $attached_pdf_meta['file_deleted'] ) {
+                                    WP_CLI::warning( "Failed to delete PDF file at {$pdf_file_path}." );
+                                } else {
+                                    WP_CLI::log( "Deleted PDF file at {$pdf_file_path}." );
+                                }
                             } else {
-                                $attached_pdf_meta['file_deleted'] = unlink( $attached_pdf_meta['pdf_file_path'] );
+                                WP_CLI::log( "Dry run: Would delete PDF file at {$pdf_file_path}." );
+                                $attached_pdf_meta['file_deleted'] = false;
                             }
-                            // Log the deletion
-                            if ( ! $attached_pdf_meta['file_deleted'] ) {
-                                WP_CLI::warning( "Failed to delete PDF file at {$pdf_file_path}." );
-                            } else {
-                                WP_CLI::log( "Deleted PDF file at {$pdf_file_path}." );
-                            }
-                        } else {
-                            WP_CLI::log( "Dry run: Would delete PDF file at {$pdf_file_path}." );
-                            $attached_pdf_meta['file_deleted'] = false;
                         }
-                    }
-                    break;
-                default:
-                    // If the link type is not recognized, we assume the PDF file is missing so we return an empty array
-                    break;
+                        break;
+                    default:
+                        // If the link type is not recognized, we assume the PDF file is missing so we return an empty array
+                        break;
+                }
             }
-            // To-do: this is only returning an empty array. Not sure why.
+
             return $attached_pdf_meta;
         }
 
