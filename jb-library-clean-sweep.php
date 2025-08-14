@@ -358,7 +358,6 @@ if ( ! class_exists( 'DLP_Document_Deletion_Command' ) ) {
                     'hide_empty' => false,
                 )
             );
-            write_log( $dlp_document_tags );
 
             if ( is_wp_error( $dlp_document_tags ) ) {
                 WP_CLI::warning( 'Failed to retrieve terms for cleanup.' );
