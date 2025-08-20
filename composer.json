@@ -1,0 +1,5 @@
+{
+  "require": {
+    "smalot/pdfparser": "v2.12.1"
+  }
+}
