@@ -497,13 +497,22 @@ if ( ! class_exists( 'PDF_Media_Deduplication_Command' ) ) {
             foreach ( $pdf_files as $file ) {
                 $scraper = new JB_PDF_Scraper( $file );
                 $details = $scraper->scrape_pdf_details();
+                WP_CLI::log( "Details for file {$file}:" );
                 if ( ! empty( $details ) ) {
-                    WP_CLI::log( "Details for file {$file}:" );
-                    foreach ( $details as $key => $value ) {
-                        WP_CLI::log( "  {$key}: {$value}" );
+                    if ( array_key_exists( 'description', $details) ) {
+                        WP_CLI::log( $details['description'] );
                     }
                 } else {
-                    WP_CLI::log( "No details found for file {$file}." );
+                    WP_CLI::log( "No description details found for file {$file}." );
+                }
+                if ( empty( $details['decription'] ) ) {
+                    $scrapped_text = $scraper->scrape_pdf_text();
+                    if ( ! empty( $scrapped_text ) ) {
+                        $description = substr($scrapped_text, strpos($scrapped_text, "name") + 5, 200);
+                        WP_CLI::log( "Description: {$description}" );
+                        $type = substr($scrapped_text, strpos($scrapped_text, "type") + 5, 200);
+                        WP_CLI::log( "Type: {$type}" );
+                    }
                 }
             }
         }
