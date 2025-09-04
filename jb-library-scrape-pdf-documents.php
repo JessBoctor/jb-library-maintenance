@@ -43,5 +43,25 @@ if ( ! class_exists( 'JB_PDF_Scraper' ) ) {
                 return null;
             }
         }
+
+        /**
+         * Scrape text content from a PDF file.
+         *
+         * @return string|null Extracted text or null on failure.
+         */
+        public function scrape_pdf_text() {
+            if ( ! file_exists( $this->file_path ) ) {
+                return null;
+            }
+
+            $parser = new Parser();
+            try {
+                $pdf = $parser->parseFile( $this->file_path );
+                return $pdf->getText();
+            } catch ( Exception $e ) {
+                // Handle error or log it
+                return null;
+            }
+        }
     }
 }
