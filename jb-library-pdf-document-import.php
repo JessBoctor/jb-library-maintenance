@@ -16,9 +16,13 @@
  *
  * Run the above commands from the terminal.
  */
+defined( 'ABSPATH' ) or die( 'No script kiddies please!' );
+use JB_PDF_Scraper;
+
 if ( ! defined( 'WP_CLI' ) || ! WP_CLI ) {
     return;
 }
+
 
 if ( ! class_exists( 'PDF_Media_Deduplication_Command' ) ) {
     class PDF_Media_Deduplication_Command {
@@ -411,8 +415,6 @@ if ( ! class_exists( 'PDF_Media_Deduplication_Command' ) ) {
     WP_CLI::add_command( 'pdf-media-dedup', 'PDF_Media_Deduplication_Command' );
 }
 
-if ( class_exists( 'PDF_Media_Deduplication_Command' ) ) {
-
     /**
      * Clear out fields stored in wp_options related to PDF media deduplication.
      * This is useful for resetting the deduplication process.
@@ -429,6 +431,7 @@ if ( class_exists( 'PDF_Media_Deduplication_Command' ) ) {
         WP_CLI::log( 'Cleared PDF media deduplication options.' );
     }
     WP_CLI::add_command( 'pdf-media-dedup-clear-options', 'clear_pdf_media_deduplication_options' );
+
 
     /**
      * Clear out CSV Log files stored in jb-deduplication/logs related to PDF media deduplication.
@@ -455,4 +458,54 @@ if ( class_exists( 'PDF_Media_Deduplication_Command' ) ) {
         }
     }
     WP_CLI::add_command( 'pdf-media-dedup-delete-logs', 'delete_pdf_media_deduplication_log_files' );
-}
+
+    /**
+     * Clear out CSV Log files stored in jb-deduplication/logs related to PDF media deduplication.
+     *
+     * Usage:
+     *  wp pdf-media-dedup-delete-logs
+     *
+     * @param array $assoc_args
+     * - Arguments include:
+     *  - Subdirectory path for the group of PDFs to be processed
+     *  - batch size
+     * @return void
+     */
+    function check_pdf_media_detail_content( array $assoc_args = []): void {
+
+        // Set the batch size
+        if ( $assoc_args['batch-size'] && is_numeric( $assoc_args['batch-size'] ) ) {
+            $batch_size = intval( $assoc_args['batch-size'] );
+        } else {
+            $batch_size = 100;
+        }
+
+        // Set the directory path
+        $wp_uploads_dir = wp_get_upload_dir();
+        $directory_path = $wp_uploads_dir['basedir'] . '/';
+        if ( isset( $assoc_args['subdirectory-path'] ) && is_string( $assoc_args['directory-path'] ) ) {
+            $directory_path .= rtrim( $assoc_args['directory-path'], '/' ) . '/';
+        }
+        if ( ! is_dir( $directory_path ) ) {
+            WP_CLI::error( "The specified directory does not exist: {$directory_path}" );
+            return;
+        }
+
+        // Get all PDF files in the directory
+        $pdf_files = glob( $directory_path . '*.pdf' );
+        if ( ! empty( $pdf_files ) ) {
+            foreach ( $pdf_files as $file ) {
+                $scraper = new JB_PDF_Scraper( $file );
+                $details = $scraper->scrape_pdf_details();
+                if ( ! empty( $details ) ) {
+                    WP_CLI::log( "Details for file {$file}:" );
+                    foreach ( $details as $key => $value ) {
+                        WP_CLI::log( "  {$key}: {$value}" );
+                    }
+                } else {
+                    WP_CLI::log( "No details found for file {$file}." );
+                }
+            }
+        }
+    }
+    WP_CLI::add_command( 'check-pdf-media-detail', 'check_pdf_media_detail_content' );
