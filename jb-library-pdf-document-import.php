@@ -17,7 +17,6 @@
  * Run the above commands from the terminal.
  */
 defined( 'ABSPATH' ) or die( 'No script kiddies please!' );
-use JB_PDF_Scraper;
 
 if ( ! defined( 'WP_CLI' ) || ! WP_CLI ) {
     return;
