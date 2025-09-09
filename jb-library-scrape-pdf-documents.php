@@ -84,12 +84,31 @@ if ( ! class_exists( 'JB_PDF_Scraper' ) ) {
          */
         public function clean_text(): string {
             $text = $this->parsed_text;
-             // Clean up the text by removing excessive whitespace and newlines
-            $text = preg_replace('/[\x00-\x1F\x7F]/u', '', $text ); 
-            $text = preg_replace('/[\x00-\x1F\x7F-\xFF]/', '', $text );
-            $text = preg_replace('/[\x00-\x1F\x7F]/', '', $text );
-            // Optionally, you can add more cleaning rules here
-            $this->cleaned_text = $text;
+            if ( empty( $text ) ) {
+                $this->scrape_pdf_text();
+                $text = $this->parsed_text;
+            }
+            write_log( "Raw scraped text:" );
+            write_log( substr( $text, 0, 500 ) ); // Log first 500 characters
+
+            // We aren't sure which type of characters may be causing the issue
+            // So we will try multiple preg_replace based on unicode types
+            // UTF-8
+            $cleaned_text = preg_replace( '/[^\x0A\x20-\x7E]/','', $text );
+
+            // 8 bit extended ASCII
+            if ( empty( $cleaned_text ) ) {
+                $cleaned_text = preg_replace('/[\x00-\x1F\x7F]/', '', $text);
+            }
+
+            // 7 bit ASCII
+            if ( empty( $cleaned_text ) ) {
+                $cleaned_text = preg_replace('/[\x00-\x1F\x7F-\xFF]/', '', $text );
+            }
+
+            $this->cleaned_text = $cleaned_text;
+            write_log( "Cleaned text:" );
+            write_log( substr( $cleaned_text, 0, 500 ) ); //
 
             return $this->cleaned_text;
         }
@@ -104,7 +123,19 @@ if ( ! class_exists( 'JB_PDF_Scraper' ) ) {
             if ( empty( $this->cleaned_text ) ) {
                 $this->clean_text();
             }
-            $position = strpos( $this->cleaned_text, $substring );
+
+            $lower_text = strtolower( $this->cleaned_text );
+            write_log( "Cleaned text for searching:" );
+            write_log( $lower_text );
+            $lower_substring = strtolower( $substring );
+            $position = strpos( $lower_text, $lower_substring );
+            if ( $position === false ) {
+                write_log( "Substring '{$substring}' not found in lowercase. Trying uppercase." );
+            }
+            if ( 0 === $position ) {
+               write_log( "Substring '{$substring}' found at position 0 in lowercase." );
+            }
+            write_log( "Position is: {$position}" );
             return ( $position !== false ) ? $position : -1;
         }
     }
