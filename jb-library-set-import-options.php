@@ -33,47 +33,8 @@ function create_stock_code_doc_tags(): void {
         WP_CLI::error( 'The DLP Document taxonomy "doc_tags" does not exists. New terms cannot be created.' );
     }
 
-    // This is the list of terms we need to add
-    // They are in slug => name key pairs
-    $stock_code_prefix_terms = array(
-        '08' => 'VACUUM BAG SUPPLIES',
-        '09' => 'RESIN EMULSIFIERS',
-        '10' => 'ACETONE',
-        '11' => 'ANVIL SLEEVES',
-        '12' => 'ABRASIVES',
-        '14' => 'RESPERATORS & MASKS',
-        '15' => 'CLOTH / FABRICS',
-        '16' => 'BRUSHES / BUFF SPURS',
-        '17' => 'TOOLING RUBBER',
-        '18' => 'BUFFING PADS',
-        '19' => 'CATALYST',
-        '20' => 'DURATEC PRODUCTS',
-        '21' => 'DISPOSABLE CLOTHING',
-        '22' => 'TOOLING BOARD',
-        '23' => 'ADHESIVES',
-        '24' => 'FILLERS',
-        '25' => 'POLYURETHANE FOAM',
-        '26' => 'MAT',
-        '27' => 'MAT/WOVEN ROVING/ETC',
-        '29' => 'MIXING CUPS',
-        '30' => 'RESINS',
-        '32' => 'RAGS',
-        '34' => 'ALUMINUM TRI HYDRATE',
-        '35' => 'TAPE',
-        '36' => 'ROLLERS',
-        '37' => 'WAXES',
-        '38' => 'SHOP/MFG SUPPLIES/FLM',
-        '39' => 'SOLVENT',
-        '40' => 'GEL COATS',
-        '44' => 'FLUORO PAINTS',
-        '57' => 'FCS FINS SETS',
-        '59' => 'FIN BOXES',
-        '80' => 'EXPOY PRODUCTS',
-        '81' => 'EPOXY PRODUCTS (SYS)',
-        '82' => 'CORE MATERIAL',
-        'CR' => 'COMPOSITE RESOURCES',
-        'XX' => 'EQUIPMENTS',
-    );
+    $file_importer = new JB_Library_File_Importer();
+    $stock_code_prefix_terms = $file_importer->get_stock_code_prefix_terms();
 
     WP_CLI::confirm( 'Ready to create the library document tags?', 'yes' );
     foreach( $stock_code_prefix_terms as $term_slug => $term_name ){
