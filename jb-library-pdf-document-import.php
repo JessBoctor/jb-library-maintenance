@@ -466,25 +466,27 @@ if ( ! class_exists( 'PDF_Media_Deduplication_Command' ) ) {
      *
      * @param array $assoc_args
      * - Arguments include:
-     *  - Subdirectory path for the group of PDFs to be processed
-     *  - batch size
+     *  --subdirectory-path - Subdirectory path for the group of PDFs to be processed
+     *  --batch-size - Number of PDF files to process in each batch (default: 100)
      * @return void
      */
-    function check_pdf_media_detail_content( array $assoc_args = []): void {
+    function check_pdf_media_detail_content( array $args, array $assoc_args = []): void {
 
         // Set the batch size
-        if ( $assoc_args['batch-size'] && is_numeric( $assoc_args['batch-size'] ) ) {
-            $batch_size = intval( $assoc_args['batch-size'] );
-        } else {
-            $batch_size = 100;
-        }
+        // if ( $assoc_args['batch-size'] && is_numeric( $assoc_args['batch-size'] ) ) {
+        //     $batch_size = intval( $assoc_args['batch-size'] );
+        // } else {
+        //     $batch_size = 100;
+        // }
+        // WP_CLI::confirm( "Batch size set to: {$batch_size}. Continue?", 'yes' );
 
         // Set the directory path
         $wp_uploads_dir = wp_get_upload_dir();
         $directory_path = $wp_uploads_dir['basedir'] . '/';
-        if ( isset( $assoc_args['subdirectory-path'] ) && is_string( $assoc_args['directory-path'] ) ) {
-            $directory_path .= rtrim( $assoc_args['directory-path'], '/' ) . '/';
+        if ( isset( $assoc_args['subdirectory-path'] ) && is_string( $assoc_args['subdirectory-path'] ) ) {
+            $directory_path .= rtrim( $assoc_args['subdirectory-path'], '/' ) . '/';
         }
+        WP_CLI::confirm( "Use directory path: {$directory_path} ?", 'yes' );
         if ( ! is_dir( $directory_path ) ) {
             WP_CLI::error( "The specified directory does not exist: {$directory_path}" );
             return;
@@ -492,28 +494,102 @@ if ( ! class_exists( 'PDF_Media_Deduplication_Command' ) ) {
 
         // Get all PDF files in the directory
         $pdf_files = glob( $directory_path . '*.pdf' );
+
         if ( ! empty( $pdf_files ) ) {
-            foreach ( $pdf_files as $file ) {
+            $problem_files = 0;
+            $unparsed_files = array();
+            $unreadable_text = array();
+            $number_of_pdfs = count( $pdf_files );
+
+            foreach ( $pdf_files as $file_number => $file ) {
+
                 $scraper = new JB_PDF_Scraper( $file );
-                $details = $scraper->scrape_pdf_details();
-                WP_CLI::log( "Details for file {$file}:" );
-                if ( ! empty( $details ) ) {
-                    if ( array_key_exists( 'description', $details) ) {
-                        WP_CLI::log( $details['description'] );
-                    }
-                } else {
-                    WP_CLI::log( "No description details found for file {$file}." );
+                WP_CLI::log( "Details for file {$file} ( {$file_number} of {$number_of_pdfs} )" );
+                $scraped_text = $scraper->scrape_pdf_text();
+
+                // Handle files where the text could not be scraped
+                if ( empty( $scraped_text ) ) {
+                    WP_CLI::log( "No text scraped from file {$file}." );
+                    $problem_files++;
+                    $unparsed_files[] = $file;
+                    continue;
                 }
-                if ( empty( $details['decription'] ) ) {
-                    $scrapped_text = $scraper->scrape_pdf_text();
-                    if ( ! empty( $scrapped_text ) ) {
-                        $description = substr($scrapped_text, strpos($scrapped_text, "name") + 5, 200);
-                        WP_CLI::log( "Description: {$description}" );
-                        $type = substr($scrapped_text, strpos($scrapped_text, "type") + 5, 200);
-                        WP_CLI::log( "Type: {$type}" );
+                $identification_start = $scraper->find_substring_position("identification");
+                $hazard_start = $scraper->find_substring_position("hazard");
+
+                // Sometimes, things get out of order, so we need to make sure the positions make sense
+                if ( $identification_start > $hazard_start ) {
+                    $identification_start = 1;
+                }
+
+                // Figure out how long the "Identification" section is
+                $text_length = $hazard_start - $identification_start;
+                    $does_identification_exist = $identification_start !== false && $hazard_start !== false && $text_length > 0;
+
+                // Log the result
+                if ( $does_identification_exist ) {
+                    WP_CLI::log( "IDENTIFICATION section found." );
+                } else {
+                    // Handle files where text was sraped but could not be read
+                    if ( -1 == $identification_start && -1 == $hazard_start ) {
+                        $unreadable_text[] = $file;
+                        WP_CLI::log( "No readable text found in file {$file}." );
+                    } else {
+                        // Throw an error for files where the text was scraped but the sections could not be found
+                        WP_CLI::confirm( "IDENTIFICATION section NOT found.
+                            Identification position is {$identification_start}.
+                            Hazards position is {$hazard_start}.
+                            Text length is {$text_length}.
+                            Continue to next file?",
+                            "yes"
+                        );
                     }
+
+                    // Count the number of problem files
+                    $problem_files++;
                 }
             }
+            WP_CLI::log( "----------------------------------------" );
+
+            WP_CLI::log( "Processed {$number_of_pdfs} files." );
+            WP_CLI::log( "Unparsed files: " . count( $unparsed_files ) );
+            WP_CLI::log( "Unreadable text files: " . count( $unreadable_text ) );
+            WP_CLI::log( "Total problem files: {$problem_files}" );
+            WP_CLI::log( "Total properly parsed files: " . ( $number_of_pdfs - $problem_files ) );
+            WP_CLI::log( "Percent of files properly parsed: " . ( ( $number_of_pdfs - $problem_files ) / $number_of_pdfs * 100 ) . "%" );
         }
     }
     WP_CLI::add_command( 'check-pdf-media-detail', 'check_pdf_media_detail_content' );
+
+    /**
+     * Clear out CSV Log files stored in jb-deduplication/logs related to PDF media deduplication.
+     *
+     * Usage:
+     *  wp pdf-media-dedup-delete-logs
+     *
+     * @param array $assoc_args
+     * - Arguments include:
+     *  --file-path - Subdirectory path for the group of PDFs to be processed
+     * @return void
+     */
+    function log_single_pdf_media_detail( array $args, array $assoc_args = []): void {
+        write_log( 'Starting single PDF media check' );
+
+        $wp_uploads_dir = wp_get_upload_dir();
+        $file_path = $wp_uploads_dir['basedir'] . '/';
+        if ( isset( $assoc_args['file-path'] ) && is_string( $assoc_args['file-path'] ) ) {
+            $file_path .= rtrim( $assoc_args['file-path'], '/' );
+            WP_CLI::confirm( "Use file path: {$file_path} ?", 'yes' );
+        } else {
+             WP_CLI::error( "You must provide a --file-path argument." );
+            return;
+        }
+
+        $scraper = new JB_PDF_Scraper( $file_path );
+        $scraped_text = $scraper->scrape_pdf_text();
+        write_log( "Scraped text:" );
+        write_log( $scraped_text );
+        WP_CLI::log( "Text written to log" );
+    }
+
+    WP_CLI::add_command( 'log-single-pdf-media-detail', 'log_single_pdf_media_detail' );
