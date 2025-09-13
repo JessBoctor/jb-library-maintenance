@@ -4,7 +4,7 @@
  * The file has to be in the uploads directory already
  * It will also set the post content and excerpt based on the file name
  */
-class JB_Library_Import_Files {
+class JB_Library_File_Importer {
     /**
      * The ID of the author to be set for the imported files
      * @var int
@@ -27,18 +27,61 @@ class JB_Library_Import_Files {
      * The array of stock code prefixes and their corresponding tag slugs
      * @var array
      */
-    public array $stock_code_prefix_terms = array();
-
-    
+    public array $stock_code_prefix_terms = array(
+        '08' => 'VACUUM BAG SUPPLIES',
+        '09' => 'RESIN EMULSIFIERS',
+        '10' => 'ACETONE',
+        '11' => 'ANVIL SLEEVES',
+        '12' => 'ABRASIVES',
+        '14' => 'RESPERATORS & MASKS',
+        '15' => 'CLOTH / FABRICS',
+        '16' => 'BRUSHES / BUFF SPURS',
+        '17' => 'TOOLING RUBBER',
+        '18' => 'BUFFING PADS',
+        '19' => 'CATALYST',
+        '20' => 'DURATEC PRODUCTS',
+        '21' => 'DISPOSABLE CLOTHING',
+        '22' => 'TOOLING BOARD',
+        '23' => 'ADHESIVES',
+        '24' => 'FILLERS',
+        '25' => 'POLYURETHANE FOAM',
+        '26' => 'MAT',
+        '27' => 'MAT/WOVEN ROVING/ETC',
+        '29' => 'MIXING CUPS',
+        '30' => 'RESINS',
+        '32' => 'RAGS',
+        '34' => 'ALUMINUM TRI HYDRATE',
+        '35' => 'TAPE',
+        '36' => 'ROLLERS',
+        '37' => 'WAXES',
+        '38' => 'SHOP/MFG SUPPLIES/FLM',
+        '39' => 'SOLVENT',
+        '40' => 'GEL COATS',
+        '44' => 'FLUORO PAINTS',
+        '57' => 'FCS FINS SETS',
+        '59' => 'FIN BOXES',
+        '80' => 'EXPOY PRODUCTS',
+        '81' => 'EPOXY PRODUCTS (SYS)',
+        '82' => 'CORE MATERIAL',
+        'CR' => 'COMPOSITE RESOURCES',
+        'XX' => 'EQUIPMENTS',
+    );
 
     /**
      * Constructor to initialize the stock code prefixes
      * @param string $category_slug The category slug to be used for the imported files
      */
-    public function __construct( int $category_id, int $author_id = 0 ) {
-        $this->stock_code_prefix_terms = get_option( 'library-import-term-ids', array() );
+    public function __construct( int $category_id = 0, int $author_id = 0 ) {
         $this->category_id = $category_id;
         $this->author_id = $author_id;
+    }
+
+    /**
+     * Retrieve the stock code prefixes and their corresponding tag slugs
+     * @return array The array of stock code prefixes and their corresponding tag slugs
+     */
+    public function get_stock_code_prefix_terms(): array {
+        return $this->stock_code_prefix_terms;
     }
 
     /**
