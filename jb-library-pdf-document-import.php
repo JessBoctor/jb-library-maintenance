@@ -13,6 +13,7 @@
  *
  * Run the above commands from the terminal.
  */
+
 defined( 'ABSPATH' ) or die( 'No script kiddies please!' );
 
 if ( ! defined( 'WP_CLI' ) || ! WP_CLI ) {
@@ -45,7 +46,7 @@ if ( ! class_exists( 'PDF_Media_Scrape_And_Import_Command' ) ) {
 
         /**
          * Subdirectory path within the uploads directory to process.
-         * 
+         *
          * @var string
          */
         private $directory_path = '';
