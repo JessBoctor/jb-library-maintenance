@@ -459,7 +459,7 @@ if ( ! class_exists( 'PDF_Media_Deduplication_Command' ) ) {
     WP_CLI::add_command( 'pdf-media-dedup-delete-logs', 'delete_pdf_media_deduplication_log_files' );
 
     /**
-     * Clear out CSV Log files stored in jb-deduplication/logs related to PDF media deduplication.
+     * Check that the PDF parser is able to read the content of PDF files in a specified directory.
      *
      * Usage:
      *  wp pdf-media-dedup-delete-logs
@@ -470,7 +470,7 @@ if ( ! class_exists( 'PDF_Media_Deduplication_Command' ) ) {
      *  --batch-size - Number of PDF files to process in each batch (default: 100)
      * @return void
      */
-    function check_pdf_media_detail_content( array $args, array $assoc_args = []): void {
+    function check_pdf_media_sds_content( array $args, array $assoc_args = []): void {
 
         // Set the batch size
         if ( $assoc_args['batch-size'] && is_numeric( $assoc_args['batch-size'] ) ) {
