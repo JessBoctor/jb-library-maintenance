@@ -6,6 +6,18 @@
  */
 class JB_Library_File_Importer {
     /**
+     * The file to be imported
+     * @var string
+     */
+    public string $filepath = '';
+
+    /**
+     * An instance of the JB_PDF_Scraper class
+     * @var JB_PDF_Scraper
+     */
+    public JB_PDF_Scraper $scraper;
+
+    /**
      * The ID of the author to be set for the imported files
      * @var int
      */
@@ -71,9 +83,11 @@ class JB_Library_File_Importer {
      * Constructor to initialize the stock code prefixes
      * @param string $category_slug The category slug to be used for the imported files
      */
-    public function __construct( int $category_id = 0, int $author_id = 0 ) {
+    public function __construct( string $filepath, int $category_id = 0, int $author_id = 0 ) {
+        $this->filepath = $filepath;
+        $this->scraper = new JB_PDF_Scraper( $filepath );
         $this->category_id = $category_id;
-        $this->author_id = $author_id;
+        $this->author_id = ( 0 !== $author_id ) ? $author_id : get_current_user_id();
     }
 
     /**
