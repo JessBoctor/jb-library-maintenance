@@ -117,7 +117,112 @@ if ( ! class_exists( 'PDF_Media_Scrape_And_Import_Command' ) ) {
             }
 
             // Being the deduplication process
-            $this->deduplicate_pdfs();
+            $this->import_pdfs();
+        }
+
+        /**
+         * Import PDF media files from the specified directory.
+         *
+         * @param none
+         * @return void
+         */
+        public function import_pdfs(): void {
+            WP_CLI::log( 'Starting PDF media import...' );
+
+            // Get all PDF files in the directory
+            $pdf_files = glob( $this->directory_path . '*.pdf' );
+            if ( empty( $pdf_files ) ) {
+                WP_CLI::log( 'No PDF files found in the specified directory.' );
+                return;
+            }
+
+            if ( ! empty( $pdf_files ) ) {
+                // Set up the global $wpdb object for checking if a post already exists
+                global $wpdb;
+
+                $number_of_pdfs = count( $pdf_files );
+                $number_of_unreadable_pdfs = 0;
+                $skipped_files = 0;
+
+                foreach ( $pdf_files as $file_number => $file_path ) {
+
+                     // Check if we've reached the batch size limit
+                    if ( $this->total_processed_files === $this->batch_size ) {
+                        WP_CLI::log( "Reached batch size limit of {$this->batch_size}. Stopping import." );
+                        break;
+                    }
+
+                    // Skip files that have already been imported
+                    if ( $this->for_real ) {
+                        $query = $wpdb->prepare(
+                            "SELECT ID
+                            FROM $wpdb->posts
+                            WHERE post_name = %s
+                            ORDERBY ID DESC",
+                            sanitize_file_name( basename( $file_path ) )
+                        );
+                        $existing_post_ID = $wpdb->get_var( $query );
+                        if ( ! empty( $existing_post_ID ) ) {
+                            WP_CLI::log( "Skipping already imported file (post exists): {$file_path} as post ID {$existing_post_ID}" );
+                            WP_CLI::log( "Total processed files so far: {$this->total_processed_files}" );
+                            WP_CLI::log( "Skipped files so far: " . ++$skipped_files );
+                            continue;
+                        }
+                    } else {
+                        if ( in_array( $file_path, $this->previously_imported_files, true ) ) {
+                            WP_CLI::log( "Skipping already imported file: {$file_path}" );
+                            WP_CLI::log( "Total processed files so far: {$this->total_processed_files}" );
+                            WP_CLI::log( "Skipped files so far: " . ++$skipped_files );
+                            continue;
+                        }
+                    }
+
+                    // Import the file
+                    $importer = new JB_Library_File_Importer( $file_path );
+                    if ( $this->for_real ) {
+                        WP_CLI::log( "Importing file ({$file_number} of {$number_of_pdfs}): {$file_path}" );
+                        $result = $importer->import_file();
+                        if ( is_wp_error( $result ) ) {
+                            WP_CLI::error( "Failed to import file {$file_path}: " . $result->get_error_message() );
+                            continue;
+                        }
+                        WP_CLI::log( "Successfully imported file: {$file_path} as post ID {$result}" );
+                    } else {
+                        WP_CLI::log( "Dry run: Would import file: {$file_path}" );
+                        WP_CLI::log( "Import Details:
+                            File Name: {$importer->file_name}
+                            File Type: {$importer->file_type}
+                            Category ID: {$importer->category_id}
+                            Tag Slug: {$importer->tag_slug}
+                            Author ID: {$importer->author_id}
+                            Is PDF Text Readable: " . ( $importer->scraper->is_pdf_readable ? 'Yes' : 'No' )
+                        );
+                        WP_CLI::log( "Total processed files so far: {$this->total_processed_files}" );
+
+                    }
+
+                    if( ! $importer->scraper->is_pdf_readable ) {
+                        $number_of_unreadable_pdfs++;
+                        WP_CLI::log( "Warning: The PDF text is not readable for file: {$file_path}. Total unreadable PDFs so far: {$number_of_unreadable_pdfs}" );
+                    }
+
+                    // Record the file as processed
+                    $this->previously_imported_files[] = $file_path;
+                    $this->total_processed_files++;
+                }
+                WP_CLI::log( "----------------------------------------" );
+                WP_CLI::log( "Processed {$this->total_processed_files} PDFs of {$number_of_pdfs} PDF files found." );
+                WP_CLI::log( "Skipped files: {$skipped_files}" );
+                WP_CLI::log( "Total unique files imported: " . count( $this->previously_imported_files ) );
+
+                // Log the number of unreadable PDFs
+                $total_unreadable_pdfs = get_option( 'one-time-script-pdf-libraries-unreadable-pdf-count', 0 );
+                update_option( 'one-time-script-pdf-libraries-unreadable-pdf-count', $total_unreadable_pdfs + $number_of_unreadable_pdfs );
+
+                // Save the list of processed files to options
+                update_option( 'one-time-script-pdf-libraries-imported-file-names', $this->previously_imported_files );
+                WP_CLI::log( 'Updated the list of imported file names in options.' );
+            }
         }
 
         /**
