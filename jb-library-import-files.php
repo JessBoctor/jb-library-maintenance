@@ -197,7 +197,6 @@ class JB_Library_File_Importer {
 
     /**
      * Get the excerpt content for SDS PDFs
-     * THIS IS WIP UNTIL I FIGURE OUT HOW TO IDENTIFY PRODUCTS IN TDS FILES
      * @return string The excerpt content
      */
     public function get_tds_excerpt_content(): string {
@@ -205,25 +204,32 @@ class JB_Library_File_Importer {
             return '';
         }
 
-        // TODO: Figure out how to identify the product name in TDS files
-        // Extract the Identification section
-        $identification_start = $this->scraper->find_substring_position("identification") + 14; // 14 is the length of the word "identification"
-        $hazard_start = $this->scraper->find_substring_position("hazard");
+        // Extract some text based on the presence of certain keywords
+        $search_terms = array(
+            'features'      => $this->scraper->find_substring_position("features"),
+            'description'   => $this->scraper->find_substring_position("description"),
+            'benefits'      => $this->scraper->find_substring_position("benefits"),
+            'eigenschaften' => $this->scraper->find_substring_position("eigenschaften"),
+            'components'    => $this->scraper->find_substring_position("components"),
+            'information'   => $this->scraper->find_substring_position("information"),
+        );
 
-        // If we can't find either section, return an empty string
-        if ( -1 === $identification_start || -1 === $hazard_start ) {
-            return '';
+        // Remove any terms that were not found (position -1)
+        $positive_positions = array_diff( $search_terms, array( -1 ) );
+
+        if ( empty( $positive_positions ) ) {
+            // If no keywords are found, return a snippet from the start of the document
+            return wp_trim_excerpt( substr( $this->scraper->cleaned_text, 0, 300 ) );
         }
 
-        // Sometimes, things get out of order, so we need to make sure the positions make sense
-        if ( $identification_start > $hazard_start ) {
-            $identification_start = 1;
-        }
-
-        // Figure out how long the "Identification" section is
-        $text_length = $hazard_start - $identification_start;
-
-        $identification_section = substr( $this->scraper->cleaned_text, $identification_start, $text_length );
-        return wp_trim_excerpt( $identification_section );
+        // Get the term with the earliest positive position
+        $best_term = array_search( min( $positive_positions ), $positive_positions );
+        return wp_trim_excerpt(
+            substr(
+                $this->scraper->cleaned_text,
+                ( $search_terms[ $best_term ] + strlen( $best_term ) ), // Offset the start position plus the length of the term
+                300
+            )
+        );
     }
 }   

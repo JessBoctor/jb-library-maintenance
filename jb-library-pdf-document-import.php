@@ -578,7 +578,109 @@ if ( ! class_exists( 'PDF_Media_Deduplication_Command' ) ) {
             WP_CLI::log( "Percent of files properly parsed: " . ( ( $batch_size - $problem_files ) / $batch_size * 100 ) . "%" );
         }
     }
-    WP_CLI::add_command( 'check-pdf-media-detail', 'check_pdf_media_detail_content' );
+    WP_CLI::add_command( 'check-pdf-media-detail-for-sds', 'check_pdf_media_sds_content' );
+
+    /**
+     * Check that the PDF parser is able to read the content of PDF files in a specified directory.
+     *
+     * Usage:
+     *  wp pdf-media-dedup-delete-logs
+     *
+     * @param array $assoc_args
+     * - Arguments include:
+     *  --subdirectory-path - Subdirectory path for the group of PDFs to be processed
+     *  --batch-size - Number of PDF files to process in each batch (default: 100)
+     * @return void
+     */
+    function check_pdf_media_tds_content( array $args, array $assoc_args = []): void {
+
+        // Set the batch size
+        if ( $assoc_args['batch-size'] && is_numeric( $assoc_args['batch-size'] ) ) {
+            $batch_size = intval( $assoc_args['batch-size'] );
+        } else {
+            $batch_size = 100;
+        }
+        WP_CLI::confirm( "Batch size set to: {$batch_size}. Continue?", 'yes' );
+
+        // Set the directory path
+        $wp_uploads_dir = wp_get_upload_dir();
+        $directory_path = $wp_uploads_dir['basedir'] . '/';
+        if ( isset( $assoc_args['subdirectory-path'] ) && is_string( $assoc_args['subdirectory-path'] ) ) {
+            $directory_path .= rtrim( $assoc_args['subdirectory-path'], '/' ) . '/';
+        }
+        WP_CLI::confirm( "Use directory path: {$directory_path} ?", 'yes' );
+        if ( ! is_dir( $directory_path ) ) {
+            WP_CLI::error( "The specified directory does not exist: {$directory_path}" );
+            return;
+        }
+
+        // Get all PDF files in the directory
+        $pdf_files = glob( $directory_path . '*.pdf' );
+
+        if ( ! empty( $pdf_files ) ) {
+            $problem_files = 0;
+            $unparsed_files = array();
+            $unreadable_text = array();
+            $missing_tds_info = array();
+            $number_of_pdfs = count( $pdf_files );
+
+            $pdf_files_batch = array_slice( $pdf_files, 0, $batch_size, true );
+
+            foreach ( $pdf_files_batch as $file_number => $file ) {
+
+                $scraper = new JB_PDF_Scraper( $file );
+                if ( false === $scraper->is_pdf_readable ) {
+                    WP_CLI::log( "No readable text found in file {$file}." );
+                    WP_CLI::log( "----------------------------------------" );
+                    $unreadable_snippet = substr( $scraper->parsed_text, 0, 200 );
+                    WP_CLI::log( "Parsed text snippet: {$unreadable_snippet}" );
+                    WP_CLI::log( "----------------------------------------" );
+                    $unreadable_text[] = $file;
+                    $problem_files++;
+                    continue;
+                }
+
+                WP_CLI::log( "Details for file {$file} ( {$file_number} of {$batch_size} )" );
+
+                // Handle files where the text could not be scraped
+                if ( empty( $scraper->cleaned_text ) ) {
+                    WP_CLI::log( "No text scraped from file {$file}." );
+                    $problem_files++;
+                    $unparsed_files[] = $file;
+                    continue;
+                }
+
+                $search_terms = array(
+                    'features'      => $scraper->find_substring_position("features"),
+                    'description'   => $scraper->find_substring_position("description"),
+                    'benefits'      => $scraper->find_substring_position("benefits"),
+                    'eigenschaften' => $scraper->find_substring_position("eigenschaften"),
+                    'components'    => $scraper->find_substring_position("components"),
+                    'information'   => $scraper->find_substring_position("information"),
+                );
+
+                if ( -4 === array_sum( $search_terms ) ) {
+                    WP_CLI::confirm( "No FEATURES, DESCRIPTION, or BENEFITS sections found in file {$file}. Continue?", "yes" );
+                    $problem_files++;
+                    $missing_tds_info[] = $file;
+                    continue;
+                }
+
+                $best_term = array_search( max( $search_terms ), $search_terms );
+                WP_CLI::log( "Best term found: {$best_term}" );
+            }
+            WP_CLI::log( "----------------------------------------" );
+
+            WP_CLI::log( "Processed {$batch_size} PDFs of {$number_of_pdfs} PDF files found." );
+            WP_CLI::log( "Unparsed files: " . count( $unparsed_files ) );
+            WP_CLI::log( "Unreadable text files: " . count( $unreadable_text ) );
+            WP_CLI::log( "Missing Identification information in files: " . count( $missing_tds_info ) );
+            WP_CLI::log( "Total problem files: {$problem_files}" );
+            WP_CLI::log( "Total properly parsed files: " . ( $batch_size - $problem_files ) );
+            WP_CLI::log( "Percent of files properly parsed: " . ( ( $batch_size - $problem_files ) / $batch_size * 100 ) . "%" );
+        }
+    }
+    WP_CLI::add_command( 'check-pdf-media-detail-for-tds', 'check_pdf_media_tds_content' );
 
     /**
      * Clear out CSV Log files stored in jb-deduplication/logs related to PDF media deduplication.
