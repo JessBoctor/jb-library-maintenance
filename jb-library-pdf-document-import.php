@@ -23,11 +23,11 @@ if ( ! class_exists( 'PDF_Media_Scrape_And_Import_Command' ) ) {
     class PDF_Media_Scrape_And_Import_Command {
 
         /**
-         * Whether to run in test mode (dry run).
+         * Whether to actually import content.
          *
          * @var bool
          */
-        private $dry_run = false;
+        private $for_real = false;
 
         /**
          * Wheter to skip confirmation prompts.
@@ -44,40 +44,25 @@ if ( ! class_exists( 'PDF_Media_Scrape_And_Import_Command' ) ) {
         private $batch_size = 100;
 
         /**
-         * Minimum post ID to start processing from.
-         *
-         * @var int
+         * Subdirectory path within the uploads directory to process.
+         * 
+         * @var string
          */
-        private $start_post_id = 1;
-
-        /**
-         * Holds the last post ID returned in the batch.
-         *
-         * @var int|null
-         */
-        private $last_post_id = null;
+        private $directory_path = '';
 
         /**
          * Holds unique post titles to check for duplicates.
          *
          * @var array
          */
-        private $unique_post_titles = array();
+        private $previously_imported_files = array();
 
         /**
-         * Holds the posts which have been deleted.
-         * This will allow us to log the deleted posts in a CSV file at the end of the batch
-         *
-         * @var array
-         */
-        private $duplicate_posts_to_log = array();
-
-        /**
-         * Total number of PDF posts detected in the media library.
+         * Total number of PDF posts imported into the media and document libraries.
          *
          * @var int
          */
-        private $total_duplicate_posts = 0;
+        private $total_processed_files = 0;
 
         /**
          * Search for duplicate PDF media files.
@@ -89,11 +74,11 @@ if ( ! class_exists( 'PDF_Media_Scrape_And_Import_Command' ) ) {
          */
         public function __invoke( $args, $assoc_args ): void {
             // Determine if we are running in dry run mode
-            $this->dry_run = isset( $assoc_args['dry-run'] );
-            if ( $this->dry_run ) {
-                WP_CLI::log( 'Running in dry run mode. No changes will be made.' );
+            $this->for_real = isset( $assoc_args['for-real'] );
+            if ( $this->for_real ) {
+                WP_CLI::log( 'Running in live mode, FOR REAL. Files will be imported.'  );
             } else {
-                WP_CLI::log( 'Running in live mode. Changes will be applied.' );
+                WP_CLI::log( ' Running in test mode. No files will be imported.' );
             }
 
             // Determine if we are running in dry run mode
@@ -102,22 +87,32 @@ if ( ! class_exists( 'PDF_Media_Scrape_And_Import_Command' ) ) {
                 WP_CLI::log( 'Cofirmations will be skipped.' );
             }
 
-            // Determine the starting post ID from CLI args or saved option
-            $this->determine_start_post_id( $assoc_args );
-
             // Set the batch size if provided
             if ( isset( $assoc_args['batch-size'] ) && is_numeric( $assoc_args['batch-size'] ) ) {
                 $this->batch_size = intval( $assoc_args['batch-size'] );
             }
             WP_CLI::log( "Batch size set to: {$this->batch_size}" );
 
-            // Fetch the past unique post titles from options
-            $saved_unique_post_titles = get_option( 'one-time-script-pdf-deduplication-unique-post-titles', array() );
-            if ( is_array( $saved_unique_post_titles ) ) {
-                $this->unique_post_titles = $saved_unique_post_titles;
-                WP_CLI::log( 'Loaded unique post records from options.' );
+            // Set the directory path
+            $wp_uploads_dir = wp_get_upload_dir();
+            $this->directory_path = $wp_uploads_dir['basedir'] . '/';
+            if ( isset( $assoc_args['subdirectory-path'] ) && is_string( $assoc_args['subdirectory-path'] ) ) {
+                $this->directory_path .= rtrim( $assoc_args['subdirectory-path'], '/' ) . '/';
+            }
+
+            if ( is_dir( $this->directory_path ) ) {
+                WP_CLI::confirm( "Use directory path: {$this->directory_path} ?", 'yes' );
             } else {
-                WP_CLI::log( 'No unique post records found in options.' );
+                WP_CLI::error( "The specified directory does not exist: {$this->directory_path}" );
+                return;
+            }
+
+            // Fetch the names of any files which have already been imported
+            $this->previously_imported_files = get_option( 'one-time-script-pdf-libraries-imported-file-names', array() );
+            if ( ! empty( $this->previously_imported_files ) ) {
+                WP_CLI::log( 'Loaded previously imported file names from options.' );
+            } else {
+                WP_CLI::log( 'No previously imported file names found in options. Starting from scratch.' );
             }
 
             // Being the deduplication process
