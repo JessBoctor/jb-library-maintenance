@@ -5,13 +5,10 @@
  * Requires WP-CLI to be installed and activated.
  *
  * Usage:
- *   wp pdf-media-dedup [--dry-run] [--start-post-id=<id>]
+ *   wp pdf-media-scrape-and-import [--for-real] [--batch-size=<number>] [--skip-confirmations]
  *
  * Examples:
- *   wp pdf-media-dedup --dry-run
- *   wp pdf-media-dedup --start-post-id=500
- *   wp pdf-media-dedup --dry-run --start-post-id=1000
- *   wp pdf-media-dedup --dry-run --start-post-id=1000 --batch-size=50
+ *   wp pdf-media-scrape-and-import --for-real
  *   wp pdf-media-dedup --skip-confirmations
  *
  * Run the above commands from the terminal.
@@ -22,9 +19,8 @@ if ( ! defined( 'WP_CLI' ) || ! WP_CLI ) {
     return;
 }
 
-
-if ( ! class_exists( 'PDF_Media_Deduplication_Command' ) ) {
-    class PDF_Media_Deduplication_Command {
+if ( ! class_exists( 'PDF_Media_Scrape_And_Import_Command' ) ) {
+    class PDF_Media_Scrape_And_Import_Command {
 
         /**
          * Whether to run in test mode (dry run).
@@ -411,7 +407,7 @@ if ( ! class_exists( 'PDF_Media_Deduplication_Command' ) ) {
             WP_CLI::log( 'Unique PDF posts found: ' . count( $this->unique_post_titles ) );
         }
     }
-    WP_CLI::add_command( 'pdf-media-dedup', 'PDF_Media_Deduplication_Command' );
+    WP_CLI::add_command( 'pdf-media-scrape-and-import', 'PDF_Media_Scrape_And_Import_Command' );
 }
 
     /**
