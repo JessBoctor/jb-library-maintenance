@@ -521,12 +521,12 @@ if ( ! class_exists( 'PDF_Media_Scrape_And_Import_Command' ) ) {
      * @param none
      * @return void
      */
-    function clear_pdf_media_deduplication_options(): void {
-        delete_option( 'one-time-script-pdf-deduplication-start-post-id' );
-        delete_option( 'one-time-script-pdf-deduplication-unique-post-titles' );
+    function clear_pdf_media_import_options(): void {
+        delete_option( 'one-time-script-pdf-libraries-imported-file-names' );
+        delete_option( 'one-time-script-pdf-libraries-unreadable-pdf-count' );
         WP_CLI::log( 'Cleared PDF media deduplication options.' );
     }
-    WP_CLI::add_command( 'pdf-media-dedup-clear-options', 'clear_pdf_media_deduplication_options' );
+    WP_CLI::add_command( 'pdf-media-import-clear-options', 'clear_pdf_media_import_options' );
 
 
     /**
