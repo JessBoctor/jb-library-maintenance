@@ -9,7 +9,19 @@ class JB_Library_File_Importer {
      * The file to be imported
      * @var string
      */
-    public string $filepath = '';
+    public string $file_path = '';
+
+    /**
+     * The file name without the path
+     * @var string
+     */
+    public string $file_name = '';
+
+    /**
+     * The file type (MIME type)
+     * @var string
+     */
+    public string $file_type = '';
 
     /**
      * An instance of the JB_PDF_Scraper class
@@ -30,7 +42,7 @@ class JB_Library_File_Importer {
     public int $category_id = 0;
 
     /**
-     * The tag slug for the product type based on the stock code
+     * The tag slug according to the prefix of the product stock code (e.g. filename)
      * @var string
      */
     public string $tag_slug = '';
@@ -39,10 +51,16 @@ class JB_Library_File_Importer {
      * Constructor to initialize the stock code prefixes
      * @param string $category_slug The category slug to be used for the imported files
      */
-    public function __construct( string $filepath = '', int $category_id = 0, int $author_id = 0 ) {
-        $this->filepath = $filepath;
-        $this->scraper = new JB_PDF_Scraper( $filepath );
+    public function __construct( string $file_path, int $category_id = 0, int $author_id = 0 ) {
+        // Set file information
+        $this->file_path = $file_path;
+        $this->file_name = sanitize_file_name( basename( $this->file_path ) );
+        $this->file_type = mime_content_type( $file_path );
+        $this->scraper = new JB_PDF_Scraper( $file_path );
+
+        // Fetch and set category and tag information
         $this->category_id = $category_id;
+        $this->tag_slug = $this->get_tag_slug_based_on_stock_code_prefix();
         $this->author_id = ( 0 !== $author_id ) ? $author_id : get_current_user_id();
     }
 
@@ -67,27 +85,23 @@ class JB_Library_File_Importer {
      * @param string $file_path The path to the file to import
      * @return string|WP_Error The DLP_Document post ID on success, or a WP_Error on failure
      */
-    public function import_file( string $file_path ): null|string|WP_Error {
+    public function import_file(): null|string|WP_Error {
         $doctument_id = null;
         
-        if ( ! file_exists( $file_path ) ) {
-            return new WP_Error( "File does not exist: $file_path" );
+        if ( ! file_exists( $this->file_path ) ) {
+            return new WP_Error( "File does not exist: $this->file_path" );
         }
-
-        // Get the file name without the path
-        $file_name = basename( $file_path );
-        $file_type = mime_content_type( $file_path );
 
         // Import the file into the media library
         $attachment_id = wp_insert_attachment(
             array(
-                'guid'           => $file_path,
-                'post_mime_type' => $file_type,
-                'post_title'     => sanitize_file_name( $file_name ),
+                'guid'           => $this->file_path,
+                'post_mime_type' => $this->file_type,
+                'post_title'     => $this->file_name,
                 'post_content'   => '',
                 'post_status'    => 'inherit',
             ),
-            $file_path
+            $this->file_path
         );
 
         if ( is_wp_error( $attachment_id ) ) {
@@ -99,14 +113,10 @@ class JB_Library_File_Importer {
         $attach_data = wp_generate_attachment_metadata( $attachment_id, $file_path );
         wp_update_attachment_metadata( $attachment_id, $attach_data );
 
-        // Get the stock code from the file name
-        $stock_code = substr( $file_name, 0, 2 );
-        $this->tag_slug = isset( $this->stock_code_prefix_terms[ $stock_code ] ) ? $this->stock_code_prefix_terms[ $stock_code ] : '';
-
         // Create a new DLP_Document post
         $doctument_id = wp_insert_post(
             array(
-                'post_title'   => sanitize_file_name( $file_name ),
+                'post_title'   => $this->file_name,
                 'post_content' => $this->scraper->is_pdf_readable ? $this->scraper->cleaned_text : '',
                 'post_excerpt' => $this->get_document_excerpt(),
                 'post_status'  => 'publish',
@@ -116,13 +126,13 @@ class JB_Library_File_Importer {
                     'doc_categories' => $this->category_id ? array( $this->category_id ) : array(),
                     'doc_tags'       => $this->tag_slug ? array( $this->tag_slug ) : array(),
                     'doc_author'     => $this->author_id,
-                    'file_type'      => $file_type,
+                    'file_type'      => $this->file_type,
                 ),
                 'meta_input'   => array(
                     '_dlp_document_link_type' => 'file',
                     '_dlp_attached_file_id'   => $attachment_id,
-                    '_dlp_attached_file_name' => $file_name,
-                    '_dlp_attachment_source'  => $file_path
+                    '_dlp_attached_file_name' => $this->file_name,
+                    '_dlp_attachment_source'  => $this->file_path
                 ),
             )
         );
@@ -145,10 +155,9 @@ class JB_Library_File_Importer {
         }
 
         // Determine if the file is an SDS or TDS based on the file name
-        $file_name = basename( $this->filepath );
-        if ( false !== stripos( $file_name, 'SDS' ) ) {
+        if ( false !== stripos( $this->file_name, 'SDS' ) ) {
             return $this->get_sds_excerpt_content();
-        } elseif ( false !== stripos( $file_name, 'TDS' ) ) {
+        } elseif ( false !== stripos( $this->file_name, 'TDS' ) ) {
             return $this->get_tds_excerpt_content();
         } else {
             // If we can't determine the type, return a snippet from the start of the document
@@ -213,7 +222,7 @@ class JB_Library_File_Importer {
         // Figure out how long the "Identification" section is
         $text_length = $hazard_start - $identification_start;
 
-        $identification_section = substr( $cleaned_text, $identification_start, $hazard_start - $identification_start );
+        $identification_section = substr( $this->scraper->cleaned_text, $identification_start, $text_length );
         return wp_trim_excerpt( $identification_section );
     }
 }   
