@@ -683,14 +683,14 @@ if ( ! class_exists( 'PDF_Media_Deduplication_Command' ) ) {
     WP_CLI::add_command( 'check-pdf-media-detail-for-tds', 'check_pdf_media_tds_content' );
 
     /**
-     * Clear out CSV Log files stored in jb-deduplication/logs related to PDF media deduplication.
+     * Check the content of a single PDF file in the media library.
      *
      * Usage:
-     *  wp pdf-media-dedup-delete-logs
+     *  wp log-single-pdf-media-detail
      *
      * @param array $assoc_args
      * - Arguments include:
-     *  --file-path - Subdirectory path for the group of PDFs to be processed
+     *  --file-path - Uploads subdirectory path for the single PDF to log
      * @return void
      */
     function log_single_pdf_media_detail( array $args, array $assoc_args = []): void {
@@ -708,9 +708,8 @@ if ( ! class_exists( 'PDF_Media_Deduplication_Command' ) ) {
 
         $scraper = new JB_PDF_Scraper( $file_path );
         $scraped_text = $scraper->scrape_pdf_text();
-        write_log( "Scraped text:" );
-        write_log( $scraped_text );
-        WP_CLI::log( "Text written to log" );
+        WP_CLI::log( "Scraped text:" );
+        WP_CLI::log( $scraped_text );
     }
 
     WP_CLI::add_command( 'log-single-pdf-media-detail', 'log_single_pdf_media_detail' );
