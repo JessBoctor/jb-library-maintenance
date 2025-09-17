@@ -136,9 +136,6 @@ class JB_Library_File_Importer {
         $attach_data = wp_generate_attachment_metadata( $attachment_id, $file_path );
         wp_update_attachment_metadata( $attachment_id, $attach_data );
 
-        // Scrape the content from the file name
-        // To-do: Implement actual PDF text scraping logic in a separate class
-
         // Get the stock code from the file name
         $stock_code = substr( $file_name, 0, 2 );
         $this->tag_slug = isset( $this->stock_code_prefix_terms[ $stock_code ] ) ? $this->stock_code_prefix_terms[ $stock_code ] : '';
@@ -147,7 +144,8 @@ class JB_Library_File_Importer {
         $doctument_id = wp_insert_post(
             array(
                 'post_title'   => sanitize_file_name( $file_name ),
-                'post_content' => '', // Scraped content can be set here if needed
+                'post_content' => $this->scraper->is_pdf_readable ? $this->scraper->cleaned_text : '',
+                'post_excerpt' => $this->get_document_excerpt(),
                 'post_status'  => 'publish',
                 'post_type'    => 'dlp_document',
                 'post_author'  => $this->author_id,
@@ -171,5 +169,88 @@ class JB_Library_File_Importer {
         }
 
         return $doctument_id;
+    }
+
+
+    /**
+     * Get the excerpt content based on the file category
+     * @return string The excerpt content
+     */
+    public function get_document_excerpt(): string {
+        if ( false === $this->scraper->is_pdf_readable ) {
+            return '';
+        }
+
+        // Determine if the file is an SDS or TDS based on the file name
+        $file_name = basename( $this->filepath );
+        if ( false !== stripos( $file_name, 'SDS' ) ) {
+            return $this->get_sds_excerpt_content();
+        } elseif ( false !== stripos( $file_name, 'TDS' ) ) {
+            return $this->get_tds_excerpt_content();
+        } else {
+            // If we can't determine the type, return a snippet from the start of the document
+            return wp_trim_excerpt( substr( $this->scraper->cleaned_text, 0, 300 ) );
+        }
+    }
+
+    /**
+     * Get the excerpt content for SDS PDFs
+     * @return string The excerpt content
+     */
+    public function get_sds_excerpt_content(): string {
+        if ( false === $this->scraper->is_pdf_readable ) {
+            return '';
+        }
+
+        // Extract the Identification section by searching for the "Identification" and "Hazard" subtitles
+        $identification_start_position = $this->scraper->find_substring_position("identification") + 14; // 14 is the length of the word "identification"
+        $hazard_start_position = $this->scraper->find_substring_position("hazard");
+
+        // If we can't find either subtitle, return an empty string
+        if ( -1 === $identification_start_position || -1 === $hazard_start_position ) {
+            return '';
+        }
+
+        // Sometimes, things get out of order, so we need to make sure the positions make sense
+        if ( $identification_start_position > $hazard_start_position ) {
+            $identification_start_position = 1;
+        }
+
+        // Figure out how long the "Identification" section is
+        $section_text_length = $hazard_start_position - $identification_start_position;
+
+        $identification_section = substr( $this->scraper->cleaned_text, $identification_start_position, $section_text_length );
+        return wp_trim_excerpt( $identification_section );
+    }
+
+    /**
+     * Get the excerpt content for SDS PDFs
+     * THIS IS WIP UNTIL I FIGURE OUT HOW TO IDENTIFY PRODUCTS IN TDS FILES
+     * @return string The excerpt content
+     */
+    public function get_tds_excerpt_content(): string {
+        if ( false === $this->scraper->is_pdf_readable ) {
+            return '';
+        }
+
+        // Extract the Identification section
+        $identification_start = $this->scraper->find_substring_position("identification") + 14; // 14 is the length of the word "identification"
+        $hazard_start = $this->scraper->find_substring_position("hazard");
+
+        // If we can't find either section, return an empty string
+        if ( -1 === $identification_start || -1 === $hazard_start ) {
+            return '';
+        }
+
+        // Sometimes, things get out of order, so we need to make sure the positions make sense
+        if ( $identification_start > $hazard_start ) {
+            $identification_start = 1;
+        }
+
+        // Figure out how long the "Identification" section is
+        $text_length = $hazard_start - $identification_start;
+
+        $identification_section = substr( $cleaned_text, $identification_start, $hazard_start - $identification_start );
+        return wp_trim_excerpt( $identification_section );
     }
 }   
