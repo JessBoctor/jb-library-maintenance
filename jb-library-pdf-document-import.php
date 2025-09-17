@@ -462,7 +462,7 @@ if ( ! class_exists( 'PDF_Media_Deduplication_Command' ) ) {
      * Check that the PDF parser is able to read the content of PDF files in a specified directory.
      *
      * Usage:
-     *  wp pdf-media-dedup-delete-logs
+     *  wp check-pdf-media-detail-for-sds
      *
      * @param array $assoc_args
      * - Arguments include:
@@ -584,7 +584,7 @@ if ( ! class_exists( 'PDF_Media_Deduplication_Command' ) ) {
      * Check that the PDF parser is able to read the content of PDF files in a specified directory.
      *
      * Usage:
-     *  wp pdf-media-dedup-delete-logs
+     *  wp check-pdf-media-detail-for-tds
      *
      * @param array $assoc_args
      * - Arguments include:
