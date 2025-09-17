@@ -33,11 +33,8 @@ function create_stock_code_doc_tags(): void {
         WP_CLI::error( 'The DLP Document taxonomy "doc_tags" does not exists. New terms cannot be created.' );
     }
 
-    $file_importer = new JB_Library_File_Importer();
-    $stock_code_prefix_terms = $file_importer->get_stock_code_prefix_terms();
-
     WP_CLI::confirm( 'Ready to create the library document tags?', 'yes' );
-    foreach( $stock_code_prefix_terms as $term_slug => $term_name ){
+    foreach( JB_LIBRARY_STOCKCODE_PREFIX_TERMS as $term_slug => $term_name ){
         $new_term = wp_insert_term(
             $term_name,
             'doc_tags',

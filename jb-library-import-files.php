@@ -36,54 +36,10 @@ class JB_Library_File_Importer {
     public string $tag_slug = '';
 
     /**
-     * The array of stock code prefixes and their corresponding tag slugs
-     * @var array
-     */
-    public array $stock_code_prefix_terms = array(
-        '08' => 'VACUUM BAG SUPPLIES',
-        '09' => 'RESIN EMULSIFIERS',
-        '10' => 'ACETONE',
-        '11' => 'ANVIL SLEEVES',
-        '12' => 'ABRASIVES',
-        '14' => 'RESPERATORS & MASKS',
-        '15' => 'CLOTH / FABRICS',
-        '16' => 'BRUSHES / BUFF SPURS',
-        '17' => 'TOOLING RUBBER',
-        '18' => 'BUFFING PADS',
-        '19' => 'CATALYST',
-        '20' => 'DURATEC PRODUCTS',
-        '21' => 'DISPOSABLE CLOTHING',
-        '22' => 'TOOLING BOARD',
-        '23' => 'ADHESIVES',
-        '24' => 'FILLERS',
-        '25' => 'POLYURETHANE FOAM',
-        '26' => 'MAT',
-        '27' => 'MAT/WOVEN ROVING/ETC',
-        '29' => 'MIXING CUPS',
-        '30' => 'RESINS',
-        '32' => 'RAGS',
-        '34' => 'ALUMINUM TRI HYDRATE',
-        '35' => 'TAPE',
-        '36' => 'ROLLERS',
-        '37' => 'WAXES',
-        '38' => 'SHOP/MFG SUPPLIES/FLM',
-        '39' => 'SOLVENT',
-        '40' => 'GEL COATS',
-        '44' => 'FLUORO PAINTS',
-        '57' => 'FCS FINS SETS',
-        '59' => 'FIN BOXES',
-        '80' => 'EXPOY PRODUCTS',
-        '81' => 'EPOXY PRODUCTS (SYS)',
-        '82' => 'CORE MATERIAL',
-        'CR' => 'COMPOSITE RESOURCES',
-        'XX' => 'EQUIPMENTS',
-    );
-
-    /**
      * Constructor to initialize the stock code prefixes
      * @param string $category_slug The category slug to be used for the imported files
      */
-    public function __construct( string $filepath, int $category_id = 0, int $author_id = 0 ) {
+    public function __construct( string $filepath = '', int $category_id = 0, int $author_id = 0 ) {
         $this->filepath = $filepath;
         $this->scraper = new JB_PDF_Scraper( $filepath );
         $this->category_id = $category_id;
@@ -91,11 +47,18 @@ class JB_Library_File_Importer {
     }
 
     /**
-     * Retrieve the stock code prefixes and their corresponding tag slugs
-     * @return array The array of stock code prefixes and their corresponding tag slugs
+     * Get the tag slug based on the stock code prefix which is the first two characters of the file name
+     * @return string The tag slug
      */
-    public function get_stock_code_prefix_terms(): array {
-        return $this->stock_code_prefix_terms;
+    public function get_tag_slug_based_on_stock_code_prefix(): string {
+        if ( empty( $this->filepath ) ) {
+            return '';
+        }
+
+        $stock_code = substr( $this->file_name, 0, 2 );
+        return isset( JB_LIBRARY_STOCKCODE_PREFIX_TERMS[ $stock_code ] )
+            ? JB_LIBRARY_STOCKCODE_PREFIX_TERMS[ $stock_code ]
+            : '';
     }
 
     /**
