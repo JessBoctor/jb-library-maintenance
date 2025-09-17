@@ -205,6 +205,7 @@ class JB_Library_File_Importer {
             return '';
         }
 
+        // TODO: Figure out how to identify the product name in TDS files
         // Extract the Identification section
         $identification_start = $this->scraper->find_substring_position("identification") + 14; // 14 is the length of the word "identification"
         $hazard_start = $this->scraper->find_substring_position("hazard");
