@@ -58,7 +58,7 @@ class JB_Library_File_Importer {
         $this->file_type = mime_content_type( $file_path );
         $this->scraper = new JB_PDF_Scraper( $file_path );
 
-        // Fetch and set category and tag information
+        // Set category, tag, and author information
         $this->set_category_id_based_on_file_name();
         $this->set_tag_slug_based_on_stock_code_prefix();
         $this->author_id = ( 0 !== $author_id ) ? $author_id : get_current_user_id();
