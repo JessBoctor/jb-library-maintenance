@@ -59,9 +59,36 @@ class JB_Library_File_Importer {
         $this->scraper = new JB_PDF_Scraper( $file_path );
 
         // Fetch and set category and tag information
-        $this->category_id = $category_id;
+        $this->get_category_id_based_on_file_name();
         $this->set_tag_slug_based_on_stock_code_prefix();
         $this->author_id = ( 0 !== $author_id ) ? $author_id : get_current_user_id();
+    }
+
+    /**
+     * Get the category ID based on the cagtegory slug contained in the file name
+     * @return void The category ID
+     */
+    public function get_category_id_based_on_file_name(): void {
+        if ( empty( $this->file_name ) ) {
+            $this->file_name = sanitize_file_name( basename( $this->file_path ) );
+        }
+
+        // Set the term slug based on the file name
+        if ( false !== stripos( $this->file_name, 'SDS' ) ) {
+            $term_slug = 'safety-data-sheets';
+        } elseif ( false !== stripos( $this->file_name, 'TDS' ) ) {
+            $term_slug = 'technical-data-sheets';
+        } else {
+            // If we can't determine the type, return early
+            return;
+        }
+
+        // Get the term by slug and set the category ID
+        $term = get_term_by( 'slug', $term_slug, 'doc_categories', OBJECT );
+        if ( $term ) {
+            $this->category_id = $term->term_id;
+        }
+        return;
     }
 
     /**
