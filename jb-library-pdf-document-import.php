@@ -59,6 +59,18 @@ if ( ! class_exists( 'PDF_Media_Scrape_And_Import_Command' ) ) {
         private $previously_imported_files = array();
 
         /**
+         * Holds file names of skipped files.
+         * @var array
+         */
+        private $skipped_files_to_log = array();
+
+        /**
+         * Holds the information of the files which were processed
+         * @var array
+         */
+        private $processed_files_to_log = array();
+
+        /**
          * Total number of PDF posts imported into the media and document libraries.
          *
          * @var int
@@ -154,18 +166,24 @@ if ( ! class_exists( 'PDF_Media_Scrape_And_Import_Command' ) ) {
 
                     // Skip files that have already been imported
                     if ( $this->for_real ) {
+                        $file_name = sanitize_file_name( basename( $file_path ) );
                         $query = $wpdb->prepare(
                             "SELECT ID
                             FROM $wpdb->posts
                             WHERE post_name = %s
                             ORDERBY ID DESC",
-                            sanitize_file_name( basename( $file_path ) )
+                            $file_name
                         );
                         $existing_post_ID = $wpdb->get_var( $query );
                         if ( ! empty( $existing_post_ID ) ) {
                             WP_CLI::log( "Skipping already imported file (post exists): {$file_path} as post ID {$existing_post_ID}" );
                             WP_CLI::log( "Total processed files so far: {$this->total_processed_files}" );
                             WP_CLI::log( "Skipped files so far: " . ++$skipped_files );
+
+                            $this->skipped_files_to_log[$file_name] = array(
+                                'file_path' => $file_path,
+                                'post_id'   => $existing_post_ID,
+                            );
                             continue;
                         }
                     } else {
@@ -173,6 +191,11 @@ if ( ! class_exists( 'PDF_Media_Scrape_And_Import_Command' ) ) {
                             WP_CLI::log( "Skipping already imported file: {$file_path}" );
                             WP_CLI::log( "Total processed files so far: {$this->total_processed_files}" );
                             WP_CLI::log( "Skipped files so far: " . ++$skipped_files );
+
+                            $this->skipped_files_to_log[$file_name] = array(
+                                'file_path' => $file_path,
+                                'post_id'   => '--dry-run--',
+                            );
                             continue;
                         }
                     }
@@ -198,7 +221,6 @@ if ( ! class_exists( 'PDF_Media_Scrape_And_Import_Command' ) ) {
                             Is PDF Text Readable: " . ( $importer->scraper->is_pdf_readable ? 'Yes' : 'No' )
                         );
                         WP_CLI::log( "Total processed files so far: {$this->total_processed_files}" );
-
                     }
 
                     if( ! $importer->scraper->is_pdf_readable ) {
