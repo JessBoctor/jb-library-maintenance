@@ -52,6 +52,12 @@ if ( ! class_exists( 'PDF_Media_Scrape_And_Import_Command' ) ) {
         private $directory_path = '';
 
         /**
+         * Total number of PDF files found in the specified directory.
+         * @var int
+         */
+        private $number_of_pdfs = 0;
+
+        /**
          * Holds unique post titles to check for duplicates.
          *
          * @var array
@@ -69,6 +75,12 @@ if ( ! class_exists( 'PDF_Media_Scrape_And_Import_Command' ) ) {
          * @var array
          */
         private $processed_files_to_log = array();
+
+        /**
+         * The count of unreadable PDFs found during import
+         * @var int
+         */
+        private $number_of_unreadable_pdfs = 0;
 
         /**
          * Total number of PDF posts imported into the media and document libraries.
@@ -152,9 +164,8 @@ if ( ! class_exists( 'PDF_Media_Scrape_And_Import_Command' ) ) {
                 // Set up the global $wpdb object for checking if a post already exists
                 global $wpdb;
 
-                $number_of_pdfs = count( $pdf_files );
-                $number_of_unreadable_pdfs = 0;
-                $skipped_files = 0;
+                $this->number_of_pdfs = count( $pdf_files );
+                WP_CLI::log( "Found {$this->number_of_pdfs} PDF files in {$this->directory_path}." );
 
                 foreach ( $pdf_files as $file_number => $file_path ) {
 
@@ -177,25 +188,29 @@ if ( ! class_exists( 'PDF_Media_Scrape_And_Import_Command' ) ) {
                         $existing_post_ID = $wpdb->get_var( $query );
                         if ( ! empty( $existing_post_ID ) ) {
                             WP_CLI::log( "Skipping already imported file (post exists): {$file_path} as post ID {$existing_post_ID}" );
-                            WP_CLI::log( "Total processed files so far: {$this->total_processed_files}" );
-                            WP_CLI::log( "Skipped files so far: " . ++$skipped_files );
 
+                            // Store the skipped file info for logging later
                             $this->skipped_files_to_log[$file_name] = array(
                                 'file_path' => $file_path,
-                                'post_id'   => $existing_post_ID,
+                                'existing_post_id'   => $existing_post_ID,
                             );
+                            WP_CLI::log( "Skipped files so far: " . count( $this->skipped_files_to_log ) );
+
+                            // Carry on
                             continue;
                         }
                     } else {
                         if ( in_array( $file_path, $this->previously_imported_files, true ) ) {
                             WP_CLI::log( "Skipping already imported file: {$file_path}" );
-                            WP_CLI::log( "Total processed files so far: {$this->total_processed_files}" );
-                            WP_CLI::log( "Skipped files so far: " . ++$skipped_files );
 
+                            // Store the skipped file info for logging later
                             $this->skipped_files_to_log[$file_name] = array(
                                 'file_path' => $file_path,
-                                'post_id'   => '--dry-run--',
+                                'existing_post_id'   => '--dry-run--',
                             );
+                            WP_CLI::log( "Skipped files so far: " . count( $this->skipped_files_to_log ) );
+
+                            // Carry on
                             continue;
                         }
                     }
@@ -203,7 +218,7 @@ if ( ! class_exists( 'PDF_Media_Scrape_And_Import_Command' ) ) {
                     // Import the file
                     $importer = new JB_Library_File_Importer( $file_path );
                     if ( $this->for_real ) {
-                        WP_CLI::log( "Importing file ({$file_number} of {$number_of_pdfs}): {$file_path}" );
+                        WP_CLI::log( "Importing file ({$file_number} of {$this->number_of_pdfs}): {$file_path}" );
                         $result = $importer->import_file();
                         if ( is_wp_error( $result ) ) {
                             WP_CLI::error( "Failed to import file {$file_path}: " . $result->get_error_message() );
@@ -223,27 +238,31 @@ if ( ! class_exists( 'PDF_Media_Scrape_And_Import_Command' ) ) {
                         WP_CLI::log( "Total processed files so far: {$this->total_processed_files}" );
                     }
 
+                    $this->processed_files_to_log[$importer->file_name] = array(
+                        'file_path'    => $file_path,
+                        'file_type'    => $importer->file_type,
+                        'category_id'  => $importer->category_id,
+                        'tag_slug'     => $importer->tag_slug,
+                        'author_id'    => $importer->author_id,
+                        'is_readable'  => $importer->scraper->is_pdf_readable ? 'Yes' : 'No',
+                        'post_id'      => $this->for_real ? $result : '--dry-run--',
+                        'attachment_id' => $this->for_real ? $importer->attachment_id : '--dry-run--',
+                    );
+
                     if( ! $importer->scraper->is_pdf_readable ) {
-                        $number_of_unreadable_pdfs++;
-                        WP_CLI::log( "Warning: The PDF text is not readable for file: {$file_path}. Total unreadable PDFs so far: {$number_of_unreadable_pdfs}" );
+                        $this->number_of_unreadable_pdfs++;
+                        WP_CLI::log( "Warning: The PDF text is not readable for file: {$file_path}. Total unreadable PDFs so far: {$this->number_of_unreadable_pdfs}" );
                     }
 
                     // Record the file as processed
                     $this->previously_imported_files[] = $file_path;
                     $this->total_processed_files++;
                 }
-                WP_CLI::log( "----------------------------------------" );
-                WP_CLI::log( "Processed {$this->total_processed_files} PDFs of {$number_of_pdfs} PDF files found." );
-                WP_CLI::log( "Skipped files: {$skipped_files}" );
-                WP_CLI::log( "Total unique files imported: " . count( $this->previously_imported_files ) );
 
-                // Log the number of unreadable PDFs
-                $total_unreadable_pdfs = get_option( 'one-time-script-pdf-libraries-unreadable-pdf-count', 0 );
-                update_option( 'one-time-script-pdf-libraries-unreadable-pdf-count', $total_unreadable_pdfs + $number_of_unreadable_pdfs );
+                // Log the results
+                $this->log_results();
+                WP_CLI::success( "PDF media import completed." );
 
-                // Save the list of processed files to options
-                update_option( 'one-time-script-pdf-libraries-imported-file-names', $this->previously_imported_files );
-                WP_CLI::log( 'Updated the list of imported file names in options.' );
             }
         }
 
@@ -487,15 +506,21 @@ if ( ! class_exists( 'PDF_Media_Scrape_And_Import_Command' ) ) {
          * @return void
          */
         private function log_results(): void {
-            // Log the number of duplicate posts found
-            WP_CLI::log( "Total duplicate posts found: {$this->total_duplicate_posts}" );
 
-            // Log the number of duplicate posts recorded or deleted
-            if ( $this->dry_run ) {
-                WP_CLI::log( 'Total duplicate posts logged: ' . count( $this->duplicate_posts_to_log ) );
-            } else {
-                WP_CLI::log( 'Total duplicate posts deleted: ' . count( $this->duplicate_posts_to_log )  );
-            }
+            WP_CLI::log( "----------------------------------------" );
+                WP_CLI::log( "Processed {$this->total_processed_files} PDFs of {$number_of_pdfs} PDF files found." );
+                WP_CLI::log( "Skipped files: {$skipped_files}" );
+                WP_CLI::log( "Total unique files imported: " . count( $this->previously_imported_files ) );
+
+                // Log the number of unreadable PDFs
+                $total_unreadable_pdfs = get_option( 'one-time-script-pdf-libraries-unreadable-pdf-count', 0 );
+                update_option( 'one-time-script-pdf-libraries-unreadable-pdf-count', $total_unreadable_pdfs + $number_of_unreadable_pdfs );
+
+                // Save the list of processed files to options
+                update_option( 'one-time-script-pdf-libraries-imported-file-names', $this->previously_imported_files );
+                WP_CLI::log( 'Updated the list of imported file names in options.' );
+                WP_CLI::log( "----------------------------------------" );
+            
 
             // Write the duplicate posts to a CSV file
             if (  ! empty( $this->duplicate_posts_to_log ) ) {
@@ -526,8 +551,28 @@ if ( ! class_exists( 'PDF_Media_Scrape_And_Import_Command' ) ) {
                 fclose( $csv_file_path );
             }
 
-            // Log the number of unique post titles found
-            WP_CLI::log( 'Unique PDF posts found: ' . count( $this->unique_post_titles ) );
+            // Write the skipped files to a CSV file
+            if (  ! empty( $this->skipped_files_to_log ) ) {
+                $csv_preffix = $this->for_real ? '' : 'dry-run-';
+                $csv_file_path = fopen( JB_LIBRARY_MAINTENANCE_PLUGIN_DIR . 'logs/' . $csv_preffix . 'skipped-pdf-media-' . gmdate( "Ymd-His", time() ) . '.csv', 'x' );
+                if ( ! $csv_file_path ) {
+                    WP_CLI::error( 'Failed to create CSV file for duplicate posts.' );
+                    return;
+                }
+
+                // Write the header and data to the CSV file
+                WP_CLI\Utils\write_csv(
+                    $csv_file_path,
+                    $this->skipped_files_to_log,
+                    array(
+                        'file_path',
+                        'existing_post_id',
+                    ),
+                );
+
+                WP_CLI::log( "Duplicate posts written to CSV file: {$csv_file_path}" );
+                fclose( $csv_file_path );
+            }
         }
     }
     WP_CLI::add_command( 'pdf-media-scrape-and-import', 'PDF_Media_Scrape_And_Import_Command' );
