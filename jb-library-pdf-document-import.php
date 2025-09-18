@@ -626,7 +626,7 @@ if ( class_exists( 'PDF_Media_Scrape_And_Import_Command' ) ) {
      * @return void
      */
     function log_single_pdf_media_detail( array $args, array $assoc_args = []): void {
-        write_log( 'Starting single PDF media check' );
+        WP_CLI::log( 'Starting single PDF media check' );
 
         $wp_uploads_dir = wp_get_upload_dir();
         $file_path = $wp_uploads_dir['basedir'] . '/';
