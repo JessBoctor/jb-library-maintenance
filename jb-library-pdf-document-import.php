@@ -176,8 +176,8 @@ if ( ! class_exists( 'PDF_Media_Scrape_And_Import_Command' ) ) {
                     }
 
                     // Skip files that have already been imported
+                    $file_name = sanitize_file_name( basename( $file_path ) );
                     if ( $this->for_real ) {
-                        $file_name = sanitize_file_name( basename( $file_path ) );
                         $query = $wpdb->prepare(
                             "SELECT ID
                             FROM $wpdb->posts
