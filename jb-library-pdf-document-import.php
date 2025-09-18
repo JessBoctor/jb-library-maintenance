@@ -235,7 +235,7 @@ if ( ! class_exists( 'PDF_Media_Scrape_And_Import_Command' ) ) {
                             Author ID: {$importer->author_id}
                             Is PDF Text Readable: " . ( $importer->scraper->is_pdf_readable ? 'Yes' : 'No' )
                         );
-                        WP_CLI::log( "Total processed files so far: {$this->total_processed_files}" );
+                        WP_CLI::log( "Total processed files so far: " . $this->total_processed_files + 1 );
                     }
 
                     $this->processed_files_to_log[$importer->file_name] = array(
