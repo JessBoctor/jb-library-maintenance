@@ -60,23 +60,24 @@ class JB_Library_File_Importer {
 
         // Fetch and set category and tag information
         $this->category_id = $category_id;
-        $this->tag_slug = $this->get_tag_slug_based_on_stock_code_prefix();
+        $this->get_tag_slug_based_on_stock_code_prefix();
         $this->author_id = ( 0 !== $author_id ) ? $author_id : get_current_user_id();
     }
 
     /**
      * Get the tag slug based on the stock code prefix which is the first two characters of the file name
-     * @return string The tag slug
+     * @return void Sets the tag slug
      */
-    public function get_tag_slug_based_on_stock_code_prefix(): string {
+    public function get_tag_slug_based_on_stock_code_prefix(): void {
         if ( empty( $this->filepath ) ) {
-            return '';
+            return;
         }
 
         $stock_code = substr( $this->file_name, 0, 2 );
-        return isset( JB_LIBRARY_STOCKCODE_PREFIX_TERMS[ $stock_code ] )
+        $this->tag_slug = isset( JB_LIBRARY_STOCKCODE_PREFIX_TERMS[ $stock_code ] )
             ? JB_LIBRARY_STOCKCODE_PREFIX_TERMS[ $stock_code ]
             : '';
+        return;
     }
 
     /**
