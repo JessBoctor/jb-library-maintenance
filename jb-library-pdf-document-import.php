@@ -294,8 +294,8 @@ if ( ! class_exists( 'PDF_Media_Scrape_And_Import_Command' ) ) {
 
             // Write the processed files to a CSV file
             if (  ! empty( $this->processed_files_to_log ) ) {
-                $csv_preffix = $this->for_real ? 'imported-' : 'dry-run-';
-                $csv_file_path = fopen( JB_LIBRARY_MAINTENANCE_PLUGIN_DIR . 'logs/' . $csv_preffix . 'pdf-media-document-import-' . gmdate( "Ymd-His", time() ) . '.csv', 'x' );
+                $csv_preffix = $this->for_real ? 'for-real-' : 'dry-run-';
+                $csv_file_path = fopen( JB_LIBRARY_MAINTENANCE_PLUGIN_DIR . 'logs/' . $csv_preffix . 'pdf-media-import-' . gmdate( "Ymd-His", time() ) . '.csv', 'x' );
                 if ( ! $csv_file_path ) {
                     WP_CLI::error( 'Failed to create CSV file for duplicate posts.' );
                     return;
@@ -323,8 +323,8 @@ if ( ! class_exists( 'PDF_Media_Scrape_And_Import_Command' ) ) {
 
             // Write the skipped files to a CSV file
             if (  ! empty( $this->skipped_files_to_log ) ) {
-                $csv_preffix = $this->for_real ? '' : 'dry-run-';
-                $csv_file_path = fopen( JB_LIBRARY_MAINTENANCE_PLUGIN_DIR . 'logs/' . $csv_preffix . 'skipped-pdf-media-' . gmdate( "Ymd-His", time() ) . '.csv', 'x' );
+                $csv_preffix = $this->for_real ? 'for-real-' : 'dry-run-';
+                $csv_file_path = fopen( JB_LIBRARY_MAINTENANCE_PLUGIN_DIR . 'logs/' . $csv_preffix . 'pdf-media-skipped' . gmdate( "Ymd-His", time() ) . '.csv', 'x' );
                 if ( ! $csv_file_path ) {
                     WP_CLI::error( 'Failed to create CSV file for duplicate posts.' );
                     return;
