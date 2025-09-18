@@ -96,10 +96,6 @@ class JB_Library_File_Importer {
      * @return void Sets the tag slug
      */
     public function set_tag_slug_based_on_stock_code_prefix(): void {
-        if ( empty( $this->filepath ) ) {
-            return;
-        }
-
         $stock_code = substr( $this->file_name, 0, 2 );
         $this->tag_slug = isset( JB_LIBRARY_STOCKCODE_PREFIX_TERMS[ $stock_code ] )
             ? JB_LIBRARY_STOCKCODE_PREFIX_TERMS[ $stock_code ]
