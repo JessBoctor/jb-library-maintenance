@@ -59,16 +59,16 @@ class JB_Library_File_Importer {
         $this->scraper = new JB_PDF_Scraper( $file_path );
 
         // Fetch and set category and tag information
-        $this->get_category_id_based_on_file_name();
+        $this->set_category_id_based_on_file_name();
         $this->set_tag_slug_based_on_stock_code_prefix();
         $this->author_id = ( 0 !== $author_id ) ? $author_id : get_current_user_id();
     }
 
     /**
      * Get the category ID based on the cagtegory slug contained in the file name
-     * @return void The category ID
+     * @return void Sets the category ID
      */
-    public function get_category_id_based_on_file_name(): void {
+    public function set_category_id_based_on_file_name(): void {
         if ( empty( $this->file_name ) ) {
             $this->file_name = sanitize_file_name( basename( $this->file_path ) );
         }
