@@ -376,22 +376,19 @@ if ( class_exists( 'PDF_Media_Scrape_And_Import_Command' ) ) {
      * @param none
      * @return void
      */
-    function delete_pdf_media_deduplication_log_files(): void {
+    function delete_pdf_media_import_log_files(): void {
         WP_CLI::confirm( 'Are you sure you want to delete all PDF media deduplication log files? If you need a CSV record of changes, make sure to download it before continuing.', 'yes' );
-        $run_types = array( 'dry-run-', 'deleted-', '' );
-        foreach ( $run_types as $run_type ) {
-            $log_files = glob( JB_DEDUP_PLUGIN_DIR . 'logs/' . $run_type . 'pdf-media-duplicate-posts-*.csv' );
-            if ( ! empty( $log_files ) ) {
-                foreach ( $log_files as $file ) {
-                    @unlink( $file );
-                }
-                WP_CLI::log( 'Deleted all PDF media deduplication log CSV files.' );
-            } else {
-                WP_CLI::log( 'No log CSV files found to delete.' );
+        $log_files = glob( JB_DEDUP_PLUGIN_DIR . 'logs/' . '*.csv' );
+        if ( ! empty( $log_files ) ) {
+            foreach ( $log_files as $file ) {
+                @unlink( $file );
             }
+            WP_CLI::log( 'Deleted all PDF media import log CSV files.' );
+        } else {
+            WP_CLI::log( 'No log CSV files found to delete.' );
         }
     }
-    WP_CLI::add_command( 'pdf-media-dedup-delete-logs', 'delete_pdf_media_deduplication_log_files' );
+    WP_CLI::add_command( 'pdf-media-import-delete-logs', 'delete_pdf_media_import_log_files' );
 
     /**
      * Check that the PDF parser is able to read the content of PDF files in a specified directory.
