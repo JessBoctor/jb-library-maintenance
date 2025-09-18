@@ -48,6 +48,18 @@ class JB_Library_File_Importer {
     public string $tag_slug = '';
 
     /**
+     * The ID of the attachment post created in the media library
+     * @var int
+     */
+    public int $attachment_id = 0;
+
+    /**
+     * The ID of the DLP_Document post created in the Document Library Pro plugin
+     * @var int
+     */
+    public int $document_id = 0;
+
+    /**
      * Constructor to initialize the stock code prefixes
      * @param string $category_slug The category slug to be used for the imported files
      */
@@ -106,12 +118,10 @@ class JB_Library_File_Importer {
     /**
      * Import a file into the media library and the Document Library Pro plugin
      *
-     * @param string $file_path The path to the file to import
-     * @return string|WP_Error The DLP_Document post ID on success, or a WP_Error on failure
+     * @return int|WP_Error The DLP_Document post ID on success, or a WP_Error on failure
      */
-    public function import_file(): null|string|WP_Error {
-        $doctument_id = null;
-        
+    public function import_file(): int|WP_Error {
+        // Check if the file exists
         if ( ! file_exists( $this->file_path ) ) {
             return new WP_Error( "File does not exist: $this->file_path" );
         }
@@ -131,6 +141,8 @@ class JB_Library_File_Importer {
         if ( is_wp_error( $attachment_id ) ) {
             return new WP_Error( "Failed to import file: " . $attachment_id->get_error_message() );
         }
+        // Store the attachment ID now that we are sure it isn't an error
+        $this->attachment_id = $attachment_id;
 
         // Generate attachment metadata and update the attachment
         require_once ABSPATH . 'wp-admin/includes/image.php';
@@ -138,7 +150,7 @@ class JB_Library_File_Importer {
         wp_update_attachment_metadata( $attachment_id, $attach_data );
 
         // Create a new DLP_Document post
-        $doctument_id = wp_insert_post(
+        $document_id = wp_insert_post(
             array(
                 'post_title'   => $this->file_name,
                 'post_content' => $this->scraper->is_pdf_readable ? $this->scraper->cleaned_text : '',
@@ -165,7 +177,10 @@ class JB_Library_File_Importer {
         wp_set_object_terms( $doctument_id, $this->file_type, 'file_type', false );
         wp_set_object_terms( $doctument_id, $this->author_id, 'doc_author', false );
 
-        return $doctument_id;
+        // Store the document ID now that we are sure it isn't an error
+        $this->document_id = $document_id;
+
+        return $this->document_id;
     }
 
 
