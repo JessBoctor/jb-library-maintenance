@@ -508,24 +508,29 @@ if ( ! class_exists( 'PDF_Media_Scrape_And_Import_Command' ) ) {
         private function log_results(): void {
 
             WP_CLI::log( "----------------------------------------" );
-                WP_CLI::log( "Processed {$this->total_processed_files} PDFs of {$number_of_pdfs} PDF files found." );
-                WP_CLI::log( "Skipped files: {$skipped_files}" );
-                WP_CLI::log( "Total unique files imported: " . count( $this->previously_imported_files ) );
+            WP_CLI::log( "Processed {$this->total_processed_files} PDFs of {$this->number_of_pdfs} PDF files found." );
+            WP_CLI::log( "Skipped files: " . count( $this->skipped_files_to_log ) );
+            WP_CLI::log( "Total unique files imported: " . count( $this->previously_imported_files ) );
 
-                // Log the number of unreadable PDFs
-                $total_unreadable_pdfs = get_option( 'one-time-script-pdf-libraries-unreadable-pdf-count', 0 );
-                update_option( 'one-time-script-pdf-libraries-unreadable-pdf-count', $total_unreadable_pdfs + $number_of_unreadable_pdfs );
+            // Log the number of unreadable PDFs found during this import
+            WP_CLI::log( "Total unreadable PDFs found during this import: {$this->number_of_unreadable_pdfs}" );
+            WP_CLI::log( "Percent of unreadable PDFs in this batch: " . ( $this->number_of_pdfs > 0 ? round( ( $this->number_of_unreadable_pdfs / $this->number_of_pdfs ) * 100, 2 ) : 0 ) . "%" );
 
-                // Save the list of processed files to options
-                update_option( 'one-time-script-pdf-libraries-imported-file-names', $this->previously_imported_files );
-                WP_CLI::log( 'Updated the list of imported file names in options.' );
-                WP_CLI::log( "----------------------------------------" );
-            
+            // Log the number of unreadable PDFs found during all imports, this is the cumulative total
+            $total_unreadable_pdfs = (int) get_option( 'one-time-script-pdf-libraries-unreadable-pdf-count', 0 ) + $this->number_of_unreadable_pdfs;
+            update_option( 'one-time-script-pdf-libraries-unreadable-pdf-count', $total_unreadable_pdfs );
+            WP_CLI::log( "Cumulative total of unreadable PDFs across all imports: {$total_unreadable_pdfs}" );
+            WP_CLI::log( "Culmulative percent of unreadable PDFs across all imports: " . ( $this->number_of_pdfs > 0 ? round( ( $total_unreadable_pdfs / $this->number_of_pdfs ) * 100, 2 ) : 0 ) . "%" );
 
-            // Write the duplicate posts to a CSV file
-            if (  ! empty( $this->duplicate_posts_to_log ) ) {
-                $csv_preffix = $this->dry_run ? 'dry-run-' : 'deleted-';
-                $csv_file_path = fopen( JB_DEDUP_PLUGIN_DIR . 'logs/' . $csv_preffix . 'pdf-media-duplicate-posts-' . gmdate( "Ymd-His", time() ) . '.csv', 'x' );
+            // Save the list of processed files to options
+            update_option( 'one-time-script-pdf-libraries-imported-file-names', $this->previously_imported_files );
+            WP_CLI::log( 'Updated the list of imported file names in options.' );
+            WP_CLI::log( "----------------------------------------" );
+
+            // Write the processed files to a CSV file
+            if (  ! empty( $this->processed_files_to_log ) ) {
+                $csv_preffix = $this->for_real ? 'imported-' : 'dry-run-';
+                $csv_file_path = fopen( JB_LIBRARY_MAINTENANCE_PLUGIN_DIR . 'logs/' . $csv_preffix . 'pdf-media-document-import-' . gmdate( "Ymd-His", time() ) . '.csv', 'x' );
                 if ( ! $csv_file_path ) {
                     WP_CLI::error( 'Failed to create CSV file for duplicate posts.' );
                     return;
@@ -534,16 +539,16 @@ if ( ! class_exists( 'PDF_Media_Scrape_And_Import_Command' ) ) {
                 // Write the header and data to the CSV file
                 WP_CLI\Utils\write_csv(
                     $csv_file_path,
-                    $this->duplicate_posts_to_log,
+                    $this->processed_files_to_log,
                     array(
-                        'original_post_id',
-                        'original_post_title',
-                        'original_pdf_url',
-                        'duplicate_post_id',
-                        'duplicate_post_title',
-                        'duplicate_pdf_url',
-                        'duplicate_pdf_file_exists',
-                        'duplicate_pdf_filesize',
+                        'file_path',
+                        'file_type',
+                        'category_id',
+                        'tag_slug',
+                        'author_id',
+                        'is_readable',
+                        'post_id',
+                        'attachment_id',
                     ),
                 );
 
