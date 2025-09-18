@@ -279,13 +279,13 @@ if ( ! class_exists( 'PDF_Media_Scrape_And_Import_Command' ) ) {
 
             // Log the number of unreadable PDFs found during this import
             WP_CLI::log( "Total unreadable PDFs found during this import: {$this->number_of_unreadable_pdfs}" );
-            WP_CLI::log( "Percent of unreadable PDFs in this batch: " . ( $this->number_of_pdfs > 0 ? round( ( $this->number_of_unreadable_pdfs / $this->number_of_pdfs ) * 100, 2 ) : 0 ) . "%" );
+            WP_CLI::log( "Percent of unreadable PDFs in this batch: " . ( $this->number_of_pdfs > 0 ? round( ( $this->number_of_unreadable_pdfs / $this->batch_size ) * 100, 2 ) : 0 ) . "%" );
 
             // Log the number of unreadable PDFs found during all imports, this is the cumulative total
             $total_unreadable_pdfs = (int) get_option( 'one-time-script-pdf-libraries-unreadable-pdf-count', 0 ) + $this->number_of_unreadable_pdfs;
             update_option( 'one-time-script-pdf-libraries-unreadable-pdf-count', $total_unreadable_pdfs );
             WP_CLI::log( "Cumulative total of unreadable PDFs across all imports: {$total_unreadable_pdfs}" );
-            WP_CLI::log( "Culmulative percent of unreadable PDFs across all imports: " . ( $this->number_of_pdfs > 0 ? round( ( $total_unreadable_pdfs / $this->number_of_pdfs ) * 100, 2 ) : 0 ) . "%" );
+            WP_CLI::log( "Culmulative percent of unreadable PDFs across all imports: " . ( $this->number_of_pdfs > 0 ? round( ( $total_unreadable_pdfs / count( $this->previously_imported_files ) ) * 100, 2 ) : 0 ) . "%" );
 
             // Save the list of processed files to options
             update_option( 'one-time-script-pdf-libraries-imported-file-names', $this->previously_imported_files );
