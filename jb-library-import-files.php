@@ -37,7 +37,7 @@ class JB_Library_File_Importer {
 
     /**
      * The category slug for the imported files
-     * @var int
+     * @var int The category ID, if set to 0 no category will be set
      */
     public int $category_id = 0;
 
@@ -51,17 +51,44 @@ class JB_Library_File_Importer {
      * Constructor to initialize the stock code prefixes
      * @param string $category_slug The category slug to be used for the imported files
      */
-    public function __construct( string $file_path, int $category_id = 0, int $author_id = 0 ) {
+    public function __construct( string $file_path, int $author_id = 0 ) {
         // Set file information
         $this->file_path = $file_path;
         $this->file_name = sanitize_file_name( basename( $this->file_path ) );
         $this->file_type = mime_content_type( $file_path );
         $this->scraper = new JB_PDF_Scraper( $file_path );
 
-        // Fetch and set category and tag information
-        $this->category_id = $category_id;
+        // Set category, tag, and author information
+        $this->set_category_id_based_on_file_name();
         $this->set_tag_slug_based_on_stock_code_prefix();
         $this->author_id = ( 0 !== $author_id ) ? $author_id : get_current_user_id();
+    }
+
+    /**
+     * Get the category ID based on the cagtegory slug contained in the file name
+     * @return void Sets the category ID
+     */
+    public function set_category_id_based_on_file_name(): void {
+        if ( empty( $this->file_name ) ) {
+            $this->file_name = sanitize_file_name( basename( $this->file_path ) );
+        }
+
+        // Set the term slug based on the file name
+        if ( false !== stripos( $this->file_name, 'SDS' ) ) {
+            $term_slug = 'safety-data-sheets';
+        } elseif ( false !== stripos( $this->file_name, 'TDS' ) ) {
+            $term_slug = 'technical-data-sheets';
+        } else {
+            // If we can't determine the type, return early
+            return;
+        }
+
+        // Get the term by slug and set the category ID
+        $term = get_term_by( 'slug', $term_slug, 'doc_categories', OBJECT );
+        if ( $term ) {
+            $this->category_id = $term->term_id;
+        }
+        return;
     }
 
     /**
