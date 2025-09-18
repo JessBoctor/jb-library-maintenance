@@ -583,6 +583,7 @@ if ( ! class_exists( 'PDF_Media_Scrape_And_Import_Command' ) ) {
     WP_CLI::add_command( 'pdf-media-scrape-and-import', 'PDF_Media_Scrape_And_Import_Command' );
 }
 
+if ( class_exists( 'PDF_Media_Scrape_And_Import_Command' ) ) {
     /**
      * Clear out fields stored in wp_options related to PDF media deduplication.
      * This is useful for resetting the deduplication process.
@@ -882,3 +883,4 @@ if ( ! class_exists( 'PDF_Media_Scrape_And_Import_Command' ) ) {
     }
 
     WP_CLI::add_command( 'log-single-pdf-media-detail', 'log_single_pdf_media_detail' );
+}
