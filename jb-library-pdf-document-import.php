@@ -378,7 +378,7 @@ if ( class_exists( 'PDF_Media_Scrape_And_Import_Command' ) ) {
      */
     function delete_pdf_media_import_log_files(): void {
         WP_CLI::confirm( 'Are you sure you want to delete all PDF media deduplication log files? If you need a CSV record of changes, make sure to download it before continuing.', 'yes' );
-        $log_files = glob( JB_DEDUP_PLUGIN_DIR . 'logs/' . '*.csv' );
+        $log_files = glob( JB_LIBRARY_MAINTENANCE_PLUGIN_DIR . 'logs/' . '*.csv' );
         if ( ! empty( $log_files ) ) {
             foreach ( $log_files as $file ) {
                 @unlink( $file );
