@@ -202,7 +202,7 @@ class JB_Library_File_Importer {
             // If we can't determine the type, return a snippet from the start of the document
             return wp_trim_excerpt(
                 trim(
-                    substr( $this->scraper->cleaned_text, 0, 300 ),
+                    substr( $this->scraper->cleaned_text, 0, 150 ),
                     "\t\n\r\0\x0B" // Trim common punctuation and whitespace
                 )
             );
@@ -268,12 +268,12 @@ class JB_Library_File_Importer {
 
         if ( empty( $positive_positions ) ) {
             // If no keywords are found, return a snippet from the start of the document
-            return wp_trim_excerpt( substr( $this->scraper->cleaned_text, 0, 300 ) );
+            return wp_trim_excerpt( substr( $this->scraper->cleaned_text, 0, 150 ) );
         }
 
         // Get the term with the earliest positive position
         $best_term = array_search( min( $positive_positions ), $positive_positions );
-        $excerpt = substr( $this->scraper->cleaned_text, $search_terms[ $best_term ], 300 );
+        $excerpt = substr( $this->scraper->cleaned_text, $search_terms[ $best_term ], 150 );
         return wp_trim_excerpt(
             trim(
                 $excerpt,
