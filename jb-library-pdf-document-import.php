@@ -161,8 +161,21 @@ if ( ! class_exists( 'PDF_Media_Scrape_And_Import_Command' ) ) {
             }
 
             if ( ! empty( $pdf_files ) ) {
-                // Set up the global $wpdb object for checking if a post already exists
-                global $wpdb;
+                // If this is for real, get all of the current document posts to check if a post already exists
+                if ( $this->for_real) {
+                    global $wpdb;
+
+                    $existing_document_posts = $wpdb->get_results(
+                        "SELECT ID, post_name
+                        FROM $wpdb->posts
+                        WHERE post_type = 'dlp_document'
+                        ",
+                        ARRAY_A
+                    );
+
+                    $existing_document_posts = wp_list_pluck( $existing_document_posts, 'ID', 'post_name' );
+                    WP_CLI::log( 'Loaded existing document posts from the database.' );
+                }
 
                 $this->number_of_pdfs = count( $pdf_files );
                 WP_CLI::log( "Found {$this->number_of_pdfs} PDF files in {$this->directory_path}." );
@@ -175,36 +188,34 @@ if ( ! class_exists( 'PDF_Media_Scrape_And_Import_Command' ) ) {
                         break;
                     }
 
+                    // Set up the file Importer
+                    $importer = new JB_Library_File_Importer( $file_path );
+
                     // Skip files that have already been imported
-                    $file_name = sanitize_file_name( basename( $file_path ) );
-                    if ( $this->for_real ) {
-                        $query = $wpdb->prepare(
-                            "SELECT ID
-                            FROM $wpdb->posts
-                            WHERE post_name = %s
-                            ORDERBY ID DESC",
-                            $file_name
+                    if (
+                        $this->for_real
+                        && array_key_exists(
+                            strtolower( str_replace( '.', '-', $importer->file_name ) ),
+                            $existing_document_posts
+                        )
+                    ) {
+                        WP_CLI::log( "Skipping already imported file (post exists): {$file_path} as post ID {$existing_document_posts[ $importer->file_name ]}" );
+
+                        // Store the skipped file info for logging later
+                        $this->skipped_files_to_log[$importer->file_name] = array(
+                            'file_path' => $file_path,
+                            'existing_post_id'   => $existing_document_posts[ $importer->file_name ],
                         );
-                        $existing_post_ID = $wpdb->get_var( $query );
-                        if ( ! empty( $existing_post_ID ) ) {
-                            WP_CLI::log( "Skipping already imported file (post exists): {$file_path} as post ID {$existing_post_ID}" );
+                        WP_CLI::log( "Skipped files so far: " . count( $this->skipped_files_to_log ) );
 
-                            // Store the skipped file info for logging later
-                            $this->skipped_files_to_log[$file_name] = array(
-                                'file_path' => $file_path,
-                                'existing_post_id'   => $existing_post_ID,
-                            );
-                            WP_CLI::log( "Skipped files so far: " . count( $this->skipped_files_to_log ) );
-
-                            // Carry on
-                            continue;
-                        }
+                        // Carry on
+                        continue;
                     } else {
                         if ( in_array( $file_path, $this->previously_imported_files, true ) ) {
                             WP_CLI::log( "Skipping already imported file: {$file_path}" );
 
                             // Store the skipped file info for logging later
-                            $this->skipped_files_to_log[$file_name] = array(
+                            $this->skipped_files_to_log[$importer->file_name] = array(
                                 'file_path' => $file_path,
                                 'existing_post_id'   => '--dry-run--',
                             );
@@ -215,8 +226,7 @@ if ( ! class_exists( 'PDF_Media_Scrape_And_Import_Command' ) ) {
                         }
                     }
 
-                    // Import the file
-                    $importer = new JB_Library_File_Importer( $file_path );
+                    // Handle the import
                     if ( $this->for_real ) {
                         WP_CLI::log( "Importing file ({$file_number} of {$this->number_of_pdfs}): {$file_path}" );
                         $result = $importer->import_file();
