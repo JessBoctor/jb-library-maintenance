@@ -146,7 +146,7 @@ class JB_Library_File_Importer {
 
         // Generate attachment metadata and update the attachment
         require_once ABSPATH . 'wp-admin/includes/image.php';
-        $attach_data = wp_generate_attachment_metadata( $attachment_id, $file_path );
+        $attach_data = wp_generate_attachment_metadata( $attachment_id, $this->file_path );
         wp_update_attachment_metadata( $attachment_id, $attach_data );
 
         // Create a new DLP_Document post
