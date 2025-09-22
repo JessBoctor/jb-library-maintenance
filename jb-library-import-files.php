@@ -200,7 +200,12 @@ class JB_Library_File_Importer {
             return $this->get_tds_excerpt_content();
         } else {
             // If we can't determine the type, return a snippet from the start of the document
-            return wp_trim_excerpt( substr( $this->scraper->cleaned_text, 0, 300 ) );
+            return wp_trim_excerpt(
+                trim(
+                    substr( $this->scraper->cleaned_text, 0, 300 ),
+                    "\t\n\r\0\x0B" // Trim common punctuation and whitespace
+                )
+            );
         }
     }
 
@@ -231,7 +236,12 @@ class JB_Library_File_Importer {
         $section_text_length = $hazard_start_position - $identification_start_position;
 
         $identification_section = substr( $this->scraper->cleaned_text, $identification_start_position, $section_text_length );
-        return wp_trim_excerpt( $identification_section );
+        return wp_trim_excerpt(
+                trim(
+                    $identification_section,
+                    "\t\n\r\0\x0B" // Trim common punctuation and whitespace
+                )
+            );
     }
 
     /**
@@ -263,11 +273,11 @@ class JB_Library_File_Importer {
 
         // Get the term with the earliest positive position
         $best_term = array_search( min( $positive_positions ), $positive_positions );
+        $excerpt = substr( $this->scraper->cleaned_text, $search_terms[ $best_term ], 300 );
         return wp_trim_excerpt(
-            substr(
-                $this->scraper->cleaned_text,
-                ( $search_terms[ $best_term ] + strlen( $best_term ) ), // Offset the start position plus the length of the term
-                300
+            trim(
+                $excerpt,
+                "\t\n\r\0\x0B" // Trim common punctuation and whitespace
             )
         );
     }
