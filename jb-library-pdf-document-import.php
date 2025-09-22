@@ -166,14 +166,14 @@ if ( ! class_exists( 'PDF_Media_Scrape_And_Import_Command' ) ) {
                     global $wpdb;
 
                     $existing_document_posts = $wpdb->get_results(
-                        "SELECT ID, post_name
+                        "SELECT ID, post_title
                         FROM $wpdb->posts
                         WHERE post_type = 'dlp_document'
                         ",
                         ARRAY_A
                     );
 
-                    $existing_document_posts = wp_list_pluck( $existing_document_posts, 'ID', 'post_name' );
+                    $existing_document_posts_by_name = wp_list_pluck( $existing_document_posts, 'ID', 'post_title' );
                     WP_CLI::log( 'Loaded existing document posts from the database.' );
                 }
 
