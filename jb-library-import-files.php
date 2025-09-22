@@ -155,15 +155,15 @@ class JB_Library_File_Importer {
             )
         );
 
+        if ( is_wp_error( $doctument_id ) ) {
+            return new WP_Error( "Failed to create DLP_Document post: " . $doctument_id->get_error_message() );
+        }
+
         // Set the document taxonomies if one was determined
         wp_set_object_terms( $doctument_id, $this->category_id, 'doc_categories', false );
         wp_set_object_terms( $doctument_id, $this->tag_slug, 'doc_tags', false );
         wp_set_object_terms( $doctument_id, $this->file_type, 'file_type', false );
         wp_set_object_terms( $doctument_id, $this->author_id, 'doc_author', false );
-   
-        if ( is_wp_error( $doctument_id ) ) {
-            return new WP_Error( "Failed to create DLP_Document post: " . $doctument_id->get_error_message() );
-        }
 
         return $doctument_id;
     }
