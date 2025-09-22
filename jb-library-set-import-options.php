@@ -43,7 +43,9 @@ function create_stock_code_doc_tags(): void {
             )
         );
         if ( is_wp_error( $new_term ) ){
-            WP_CLI::error( "Term creation failed! A term was not created for slug {$term_slug} with name {$term_name}. Exiting.");
+            WP_CLI::log( print_r( $new_term, true ) );
+            WP_CLI::confirm( "Term creation failed! A term was not created for slug {$term_slug} with name {$term_name}. Continue to next term?.", "yes" );
+            continue;
         }
 
         $term_id = $new_term['term_id'];
