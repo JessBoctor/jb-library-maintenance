@@ -48,6 +48,18 @@ class JB_Library_File_Importer {
     public string $tag_slug = '';
 
     /**
+     * The ID of the attachment post created in the media library
+     * @var int
+     */
+    public int $attachment_id = 0;
+
+    /**
+     * The ID of the DLP_Document post created in the Document Library Pro plugin
+     * @var int
+     */
+    public int $document_id = 0;
+
+    /**
      * Constructor to initialize the stock code prefixes
      * @param string $category_slug The category slug to be used for the imported files
      */
@@ -106,12 +118,10 @@ class JB_Library_File_Importer {
     /**
      * Import a file into the media library and the Document Library Pro plugin
      *
-     * @param string $file_path The path to the file to import
-     * @return string|WP_Error The DLP_Document post ID on success, or a WP_Error on failure
+     * @return int|WP_Error The DLP_Document post ID on success, or a WP_Error on failure
      */
-    public function import_file(): null|string|WP_Error {
-        $doctument_id = null;
-        
+    public function import_file(): int|WP_Error {
+        // Check if the file exists
         if ( ! file_exists( $this->file_path ) ) {
             return new WP_Error( "File does not exist: $this->file_path" );
         }
@@ -131,14 +141,16 @@ class JB_Library_File_Importer {
         if ( is_wp_error( $attachment_id ) ) {
             return new WP_Error( "Failed to import file: " . $attachment_id->get_error_message() );
         }
+        // Store the attachment ID now that we are sure it isn't an error
+        $this->attachment_id = $attachment_id;
 
         // Generate attachment metadata and update the attachment
         require_once ABSPATH . 'wp-admin/includes/image.php';
-        $attach_data = wp_generate_attachment_metadata( $attachment_id, $file_path );
+        $attach_data = wp_generate_attachment_metadata( $attachment_id, $this->file_path );
         wp_update_attachment_metadata( $attachment_id, $attach_data );
 
         // Create a new DLP_Document post
-        $doctument_id = wp_insert_post(
+        $document_id = wp_insert_post(
             array(
                 'post_title'   => $this->file_name,
                 'post_content' => $this->scraper->is_pdf_readable ? $this->scraper->cleaned_text : '',
@@ -155,17 +167,20 @@ class JB_Library_File_Importer {
             )
         );
 
-        if ( is_wp_error( $doctument_id ) ) {
+        if ( is_wp_error( $document_id ) ) {
             return new WP_Error( "Failed to create DLP_Document post: " . $doctument_id->get_error_message() );
         }
 
         // Set the document taxonomies if one was determined
-        wp_set_object_terms( $doctument_id, $this->category_id, 'doc_categories', false );
-        wp_set_object_terms( $doctument_id, $this->tag_slug, 'doc_tags', false );
-        wp_set_object_terms( $doctument_id, $this->file_type, 'file_type', false );
-        wp_set_object_terms( $doctument_id, $this->author_id, 'doc_author', false );
+        wp_set_object_terms( $document_id, $this->category_id, 'doc_categories', false );
+        wp_set_object_terms( $document_id, $this->tag_slug, 'doc_tags', false );
+        wp_set_object_terms( $document_id, $this->file_type, 'file_type', false );
+        wp_set_object_terms( $document_id, $this->author_id, 'doc_author', false );
 
-        return $doctument_id;
+        // Store the document ID now that we are sure it isn't an error
+        $this->document_id = $document_id;
+
+        return $this->document_id;
     }
 
 
@@ -185,7 +200,13 @@ class JB_Library_File_Importer {
             return $this->get_tds_excerpt_content();
         } else {
             // If we can't determine the type, return a snippet from the start of the document
-            return wp_trim_excerpt( substr( $this->scraper->cleaned_text, 0, 300 ) );
+            return wp_trim_excerpt(
+                preg_replace(
+                    '/\s+/',
+                    ' ',
+                    substr( $this->scraper->cleaned_text, 0, 150 ),
+                )
+            );
         }
     }
 
@@ -199,24 +220,28 @@ class JB_Library_File_Importer {
         }
 
         // Extract the Identification section by searching for the "Identification" and "Hazard" subtitles
-        $identification_start_position = $this->scraper->find_substring_position("identification") + 14; // 14 is the length of the word "identification"
-        $hazard_start_position = $this->scraper->find_substring_position("hazard");
+        $identification_start_position = $this->scraper->find_substring_position("identification");
 
-        // If we can't find either subtitle, return an empty string
-        if ( -1 === $identification_start_position || -1 === $hazard_start_position ) {
-            return '';
+        // If we can't find the identification subtitle, return an a generic string
+        if ( -1 === $identification_start_position ) {
+            $excerpt = substr( $this->scraper->cleaned_text, 0, 150 ) . "...";
+            return wp_trim_excerpt(
+                preg_replace(
+                    '/\s+/',
+                    ' ',
+                    $excerpt
+                )
+            );
         }
 
-        // Sometimes, things get out of order, so we need to make sure the positions make sense
-        if ( $identification_start_position > $hazard_start_position ) {
-            $identification_start_position = 1;
-        }
-
-        // Figure out how long the "Identification" section is
-        $section_text_length = $hazard_start_position - $identification_start_position;
-
-        $identification_section = substr( $this->scraper->cleaned_text, $identification_start_position, $section_text_length );
-        return wp_trim_excerpt( $identification_section );
+        $identification_section = substr( $this->scraper->cleaned_text, $identification_start_position, 150 ) . "...";
+        return wp_trim_excerpt(
+               preg_replace(
+                    '/\s+/',
+                    ' ',
+                    $identification_section
+                )
+            );
     }
 
     /**
@@ -243,16 +268,24 @@ class JB_Library_File_Importer {
 
         if ( empty( $positive_positions ) ) {
             // If no keywords are found, return a snippet from the start of the document
-            return wp_trim_excerpt( substr( $this->scraper->cleaned_text, 0, 300 ) );
+            $excerpt = substr( $this->scraper->cleaned_text, 0, 150 ) . "...";
+            return wp_trim_excerpt( 
+                preg_replace(
+                    '/\s+/',
+                    ' ',
+                    $excerpt
+                )
+             );
         }
 
         // Get the term with the earliest positive position
         $best_term = array_search( min( $positive_positions ), $positive_positions );
+        $excerpt = substr( $this->scraper->cleaned_text, $search_terms[ $best_term ], 150 ) . "...";
         return wp_trim_excerpt(
-            substr(
-                $this->scraper->cleaned_text,
-                ( $search_terms[ $best_term ] + strlen( $best_term ) ), // Offset the start position plus the length of the term
-                300
+            preg_replace(
+                    '/\s+/',
+                    ' ',
+                $excerpt
             )
         );
     }

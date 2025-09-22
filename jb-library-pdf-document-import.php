@@ -5,33 +5,30 @@
  * Requires WP-CLI to be installed and activated.
  *
  * Usage:
- *   wp pdf-media-dedup [--dry-run] [--start-post-id=<id>]
+ *   wp pdf-media-scrape-and-import [--for-real] [--batch-size=<number>] [--skip-confirmations]
  *
  * Examples:
- *   wp pdf-media-dedup --dry-run
- *   wp pdf-media-dedup --start-post-id=500
- *   wp pdf-media-dedup --dry-run --start-post-id=1000
- *   wp pdf-media-dedup --dry-run --start-post-id=1000 --batch-size=50
- *   wp pdf-media-dedup --skip-confirmations
+ *   wp pdf-media-scrape-and-import --for-real
+ *   wp pdf-media-scrape-and-import --skip-confirmations
  *
  * Run the above commands from the terminal.
  */
+
 defined( 'ABSPATH' ) or die( 'No script kiddies please!' );
 
 if ( ! defined( 'WP_CLI' ) || ! WP_CLI ) {
     return;
 }
 
-
-if ( ! class_exists( 'PDF_Media_Deduplication_Command' ) ) {
-    class PDF_Media_Deduplication_Command {
+if ( ! class_exists( 'PDF_Media_Scrape_And_Import_Command' ) ) {
+    class PDF_Media_Scrape_And_Import_Command {
 
         /**
-         * Whether to run in test mode (dry run).
+         * Whether to actually import content.
          *
          * @var bool
          */
-        private $dry_run = false;
+        private $for_real = false;
 
         /**
          * Wheter to skip confirmation prompts.
@@ -48,40 +45,49 @@ if ( ! class_exists( 'PDF_Media_Deduplication_Command' ) ) {
         private $batch_size = 100;
 
         /**
-         * Minimum post ID to start processing from.
+         * Subdirectory path within the uploads directory to process.
          *
-         * @var int
+         * @var string
          */
-        private $start_post_id = 1;
+        private $directory_path = '';
 
         /**
-         * Holds the last post ID returned in the batch.
-         *
-         * @var int|null
+         * Total number of PDF files found in the specified directory.
+         * @var int
          */
-        private $last_post_id = null;
+        private $number_of_pdfs = 0;
 
         /**
          * Holds unique post titles to check for duplicates.
          *
          * @var array
          */
-        private $unique_post_titles = array();
+        private $previously_imported_files = array();
 
         /**
-         * Holds the posts which have been deleted.
-         * This will allow us to log the deleted posts in a CSV file at the end of the batch
-         *
+         * Holds file names of skipped files.
          * @var array
          */
-        private $duplicate_posts_to_log = array();
+        private $skipped_files_to_log = array();
 
         /**
-         * Total number of PDF posts detected in the media library.
+         * Holds the information of the files which were processed
+         * @var array
+         */
+        private $processed_files_to_log = array();
+
+        /**
+         * The count of unreadable PDFs found during import
+         * @var int
+         */
+        private $number_of_unreadable_pdfs = 0;
+
+        /**
+         * Total number of PDF posts imported into the media and document libraries.
          *
          * @var int
          */
-        private $total_duplicate_posts = 0;
+        private $total_processed_files = 0;
 
         /**
          * Search for duplicate PDF media files.
@@ -93,11 +99,11 @@ if ( ! class_exists( 'PDF_Media_Deduplication_Command' ) ) {
          */
         public function __invoke( $args, $assoc_args ): void {
             // Determine if we are running in dry run mode
-            $this->dry_run = isset( $assoc_args['dry-run'] );
-            if ( $this->dry_run ) {
-                WP_CLI::log( 'Running in dry run mode. No changes will be made.' );
+            $this->for_real = isset( $assoc_args['for-real'] );
+            if ( $this->for_real ) {
+                WP_CLI::log( 'Running in live mode, FOR REAL. Files will be imported.'  );
             } else {
-                WP_CLI::log( 'Running in live mode. Changes will be applied.' );
+                WP_CLI::log( ' Running in test mode. No files will be imported.' );
             }
 
             // Determine if we are running in dry run mode
@@ -106,261 +112,172 @@ if ( ! class_exists( 'PDF_Media_Deduplication_Command' ) ) {
                 WP_CLI::log( 'Cofirmations will be skipped.' );
             }
 
-            // Determine the starting post ID from CLI args or saved option
-            $this->determine_start_post_id( $assoc_args );
-
             // Set the batch size if provided
             if ( isset( $assoc_args['batch-size'] ) && is_numeric( $assoc_args['batch-size'] ) ) {
                 $this->batch_size = intval( $assoc_args['batch-size'] );
             }
             WP_CLI::log( "Batch size set to: {$this->batch_size}" );
 
-            // Fetch the past unique post titles from options
-            $saved_unique_post_titles = get_option( 'one-time-script-pdf-deduplication-unique-post-titles', array() );
-            if ( is_array( $saved_unique_post_titles ) ) {
-                $this->unique_post_titles = $saved_unique_post_titles;
-                WP_CLI::log( 'Loaded unique post records from options.' );
+            // Set the directory path
+            $wp_uploads_dir = wp_get_upload_dir();
+            $this->directory_path = $wp_uploads_dir['basedir'] . '/';
+            if ( isset( $assoc_args['subdirectory-path'] ) && is_string( $assoc_args['subdirectory-path'] ) ) {
+                $this->directory_path .= rtrim( $assoc_args['subdirectory-path'], '/' ) . '/';
+            }
+
+            if ( is_dir( $this->directory_path ) ) {
+                WP_CLI::confirm( "Use directory path: {$this->directory_path} ?", 'yes' );
             } else {
-                WP_CLI::log( 'No unique post records found in options.' );
+                WP_CLI::error( "The specified directory does not exist: {$this->directory_path}" );
+                return;
+            }
+
+            // Fetch the names of any files which have already been imported
+            $this->previously_imported_files = get_option( 'one-time-script-pdf-libraries-imported-file-names', array() );
+            if ( ! empty( $this->previously_imported_files ) ) {
+                WP_CLI::log( 'Loaded previously imported file names from options.' );
+            } else {
+                WP_CLI::log( 'No previously imported file names found in options. Starting from scratch.' );
             }
 
             // Being the deduplication process
-            $this->deduplicate_pdfs();
+            $this->import_pdfs();
         }
 
         /**
-         * Deduplicate PDF media files in the WordPress media library.
-         *
-         * @param none
-         * @return void
-         * @when after_wp_load
-         */
-        public function deduplicate_pdfs(): void {
-            WP_CLI::log( 'Starting PDF media deduplication...' );
-
-            // Fetch PDF posts for this batch
-            $pdf_posts = $this->get_pdf_posts();
-            if ( empty( $pdf_posts ) ) {
-                WP_CLI::log( 'No PDF posts found to deduplicate.' );
-                return;
-            }
-            // Log the number of PDF posts found
-            $pdf_posts_count = count( $pdf_posts );
-            WP_CLI::log( "Found {$pdf_posts_count} PDF posts to process." );
-            $this->save_last_post_id_to_options();
-            WP_CLI::log( "Last post ID in batch: {$this->last_post_id}" );
-
-            // Loop through the PDF posts and check for duplicates
-            foreach ( $pdf_posts as $post ) {
-                $post_title = $post->post_title;
-                $matching_post_title_id = null;
-
-                if ( $this->dry_run ) {
-                    WP_CLI::log( "Checking post ID {$post->ID} with title '{$post_title}' for duplicates." );
-                }
-
-                // Check if the post title is already in the unique titles array
-                $matching_post_title_id = array_search( $post_title, $this->unique_post_titles, true );
-                if ( ! empty( $matching_post_title_id ) ) {
-                    $this->handle_duplicate_post( $post, $matching_post_title_id );
-                    continue;
-                } 
-
-                // Check if the post is a fuzzy duplicate
-                // These are post titles that may have a common slug
-                // but a unique post title because of -x suffixes which get added upon upload
-
-                // "-1" is a common suffix for duplicates, so we check for it
-                if ( str_contains( $post_title, '-1' ) ) {
-                    str_replace( '-1', '', $post_title );
-                    $matching_post_title_id = array_search( $post_title, $this->unique_post_titles, true );
-                    if ( ! empty( $matching_post_title_id ) ) {
-                        $this->handle_duplicate_post( $post, $matching_post_title_id );
-                        continue;
-                    }
-                }
-
-                // "-2" is a common suffix for duplicates, so we check for it
-                if ( str_contains( $post_title, '-2' ) ) {
-                    str_replace( '-2', '', $post_title );
-                    $matching_post_title_id = array_search( $post_title, $this->unique_post_titles, true );
-                    if ( ! empty( $matching_post_title_id ) ) {
-                        $this->handle_duplicate_post( $post, $matching_post_title_id );
-                        continue;
-                    }
-                }
-
-                // "-pdf" is a common suffix for duplicates, so we check for it
-                if ( str_contains( $post_title, '-pdf' ) ) {
-                    str_replace( '-pdf', '', $post_title );
-                    $matching_post_title_id = array_search( $post_title, $this->unique_post_titles, true );
-                    if ( ! empty( $matching_post_title_id ) ) {
-                        $this->handle_duplicate_post( $post, $matching_post_title_id );
-                        continue;
-                    }
-                }
-
-                // Add the unmodified post title to the unique titles array
-                $this->unique_post_titles[$post->ID] = $post->post_title;
-            }
-
-            // Save the unique post titles to options
-            $this->save_unique_post_titles_to_options();
-
-            // Handle logging the results
-            $this->log_results();
-
-            // Your deduplication logic here, using $this->dry_run and $this->start_post_id to control actions.
-            WP_CLI::success( "PDF media deduplication completed for post ID #{$this->start_post_id} through #{$this->last_post_id}." );
-        }
-
-        /**
-         * Determine the starting post ID from CLI args or saved option.
-         *
-         * @param array $assoc_args
-         */
-        private function determine_start_post_id( $assoc_args ) {
-            if ( isset( $assoc_args['start-post-id'] ) ) {
-                $this->start_post_id = intval( $assoc_args['start-post-id'] );
-                WP_CLI::log( "Starting from provided post ID: {$this->start_post_id}" );
-                return; // If a start post ID is provided, it should always take precedence.
-            }
-
-            $saved_start_post_id = get_option( 'one-time-script-pdf-deduplication-start-post-id' );
-            if ( $saved_start_post_id ) {
-                $this->start_post_id = intval( $saved_start_post_id );
-                WP_CLI::log( "Resuming from saved post ID: {$this->start_post_id}" );
-                return; // If a saved start post ID exists, use it.
-            }
-
-            // If no start post ID is provided or saved, use default of 1
-            WP_CLI::log( 'No saved start post ID found or provided. Starting from post ID 1.' );
-        }
-
-        /**
-         * Fetch PDF posts from the database.
-         *
-         * @param none
-         * @return array Array of post objects representing PDF attachments.
-         */
-        private function get_pdf_posts(): array {
-            global $wpdb;
-
-            $results = $wpdb->get_results(
-                $wpdb->prepare(
-                    "
-                    SELECT * FROM {$wpdb->posts}
-                    WHERE post_type = %s
-                      AND post_mime_type = %s
-                      AND ID > %d
-                    ORDER BY ID ASC
-                    LIMIT %d
-                    ",
-                    'attachment',
-                    'application/pdf',
-                    $this->start_post_id,
-                    $this->batch_size
-                )
-            );
-
-            // Set the last_post_id property to the last post ID in the results, if any
-            if ( ! empty( $results ) ) {
-                $last_post = end( $results );
-                $this->last_post_id = $last_post->ID;
-            }
-
-            return $results;
-        }
-
-        /**
-         * Save the last processed post ID to the wp_options table.
-         * This allows the script to resume from the last processed post ID
+         * Import PDF media files from the specified directory.
          *
          * @param none
          * @return void
          */
-        private function save_last_post_id_to_options(): void {
-            if ( ! is_null( $this->last_post_id ) ) {
-                update_option( 'one-time-script-pdf-deduplication-start-post-id', $this->last_post_id );
-            }
-        }
+        public function import_pdfs(): void {
+            WP_CLI::log( 'Starting PDF media import...' );
 
-        /**
-         * Save the unique post titles array to the wp_options table.
-         * This allows the script to check previously processed titles for duplicates
-         *
-         * @param none
-         * @return void
-         */
-        private function save_unique_post_titles_to_options(): void {
-            if ( ! empty( $this->unique_post_titles ) ) {
-                update_option( 'one-time-script-pdf-deduplication-unique-post-titles', $this->unique_post_titles );
-            }
-        }
-
-        /**
-         * Handle a duplicate post when it is found.
-         *
-         * @param object $post The post object that is a duplicate.
-         * @param int|string $matching_post_title_id The IDs of posts with the same title.
-         * @return void
-         */
-        private function handle_duplicate_post( object $duplicate_post, int|string $matching_post_title_id ): void {
-            $this->total_duplicate_posts++;
-            $original_pdf_url = get_attached_file( $matching_post_title_id );
-            $duplicate_post_message =
-                "
-                    Duplicate PDF found. Original post ID {$matching_post_title_id} with title '{$this->unique_post_titles[$matching_post_title_id]}'
-                    ({$original_pdf_url}).
-                    Duplicate post ID {$duplicate_post->ID} has title '{$duplicate_post->post_title}' ({$duplicate_post->guid}).
-                ";
-
-            if ( $this->dry_run ) {
-                WP_CLI::log( "Dry run: " . $duplicate_post_message );
-                if ( ! $this->skip_confirmations ) {
-                   WP_CLI::confirm( 'Log the duplicate post and PDF file to CSV?', 'yes' );
-                }
-                $this->gather_duplicate_posts_data( $duplicate_post, $matching_post_title_id );
+            // Get all PDF files in the directory
+            $pdf_files = glob( $this->directory_path . '*.pdf' );
+            if ( empty( $pdf_files ) ) {
+                WP_CLI::log( 'No PDF files found in the specified directory.' );
                 return;
             }
 
-            if ( ! $this->dry_run ) {
-                // Logic to handle duplicates, e.g., delete or mark as duplicate
-                WP_CLI::log( $duplicate_post_message);
-                if ( ! $this->skip_confirmations ) {
-                    WP_CLI::confirm( 'Do you want to delete the duplicate post and PDF file?', 'yes' );
+            if ( ! empty( $pdf_files ) ) {
+                // If this is for real, get all of the current document posts to check if a post already exists
+                if ( $this->for_real) {
+                    global $wpdb;
+
+                    $existing_document_posts = $wpdb->get_results(
+                        "SELECT ID, post_title
+                        FROM $wpdb->posts
+                        WHERE post_type = 'dlp_document'
+                        ",
+                        ARRAY_A
+                    );
+
+                    $existing_document_posts_by_name = wp_list_pluck( $existing_document_posts, 'ID', 'post_title' );
+                    WP_CLI::log( 'Loaded existing document posts from the database.' );
                 }
-                $this->gather_duplicate_posts_data( $duplicate_post, $matching_post_title_id );
-                wp_delete_attachment( $duplicate_post->ID, true );
-                WP_CLI::log( "Deleted duplicate post ID {$duplicate_post->ID}." );
-                return;
+
+                $this->number_of_pdfs = count( $pdf_files );
+                WP_CLI::log( "Found {$this->number_of_pdfs} PDF files in {$this->directory_path}." );
+
+                foreach ( $pdf_files as $file_number => $file_path ) {
+
+                     // Check if we've reached the batch size limit
+                    if ( $this->total_processed_files === $this->batch_size ) {
+                        WP_CLI::log( "Reached batch size limit of {$this->batch_size}. Stopping import." );
+                        break;
+                    }
+
+                    // Set up the file Importer
+                    $importer = new JB_Library_File_Importer( $file_path );
+
+                    // Handle for-real actions
+                    if ( $this->for_real ) {
+                        // Skip files that have already been imported
+                        if (
+                            array_key_exists(
+                                $importer->file_name,
+                                $existing_document_posts_by_name
+                            )
+                        ) {
+                            WP_CLI::log( "Skipping already imported file (post exists): {$file_path} as post ID {$existing_document_posts_by_name[ $importer->file_name ]}" );
+
+                            // Store the skipped file info for logging later
+                            $this->skipped_files_to_log[$importer->file_name] = array(
+                                'file_path' => $file_path,
+                                'existing_post_id'   => $existing_document_posts_by_name[ $importer->file_name ],
+                            );
+                            WP_CLI::log( "Skipped files so far: " . count( $this->skipped_files_to_log ) );
+
+                            // Carry on
+                            continue;
+                        }
+
+                        // If the file isn't skipped, import it
+                        WP_CLI::log( "Importing file ({$file_number} of {$this->number_of_pdfs}): {$file_path}" );
+                        $result = $importer->import_file();
+                        if ( is_wp_error( $result ) ) {
+                            WP_CLI::error( "Failed to import file {$file_path}: " . $result->get_error_message() );
+                            continue;
+                        }
+                        WP_CLI::log( "Successfully imported file: {$file_path} as post ID {$result}" );
+                    }
+
+                    // Handle dry-run actions
+                    if ( ! $this->for_real ) {
+                        if ( in_array( $file_path, $this->previously_imported_files, true ) ) {
+                            WP_CLI::log( "Skipping already imported file: {$file_path}" );
+
+                            // Store the skipped file info for logging later
+                            $this->skipped_files_to_log[$importer->file_name] = array(
+                                'file_path' => $file_path,
+                                'existing_post_id'   => '--dry-run--',
+                            );
+                            WP_CLI::log( "Skipped files so far: " . count( $this->skipped_files_to_log ) );
+
+                            // Carry on
+                            continue;
+                        }
+
+                        // If the file shouldn't be skipped, simulate the import
+                        WP_CLI::log( "Dry run: Would import file: {$file_path}" );
+                        WP_CLI::log( "Import Details:
+                            File Name: {$importer->file_name}
+                            File Type: {$importer->file_type}
+                            Category ID: {$importer->category_id}
+                            Tag Slug: {$importer->tag_slug}
+                            Author ID: {$importer->author_id}
+                            Is PDF Text Readable: " . ( $importer->scraper->is_pdf_readable ? 'Yes' : 'No' )
+                        );
+                        WP_CLI::log( "Total processed files so far: " . $this->total_processed_files + 1 );
+                    }
+
+                    $this->processed_files_to_log[$importer->file_name] = array(
+                        'file_path'    => $file_path,
+                        'file_type'    => $importer->file_type,
+                        'category_id'  => $importer->category_id,
+                        'tag_slug'     => $importer->tag_slug,
+                        'author_id'    => $importer->author_id,
+                        'is_readable'  => $importer->scraper->is_pdf_readable ? 'Yes' : 'No',
+                        'post_id'      =>  $this->for_real ? $importer->document_id : '--dry-run--',
+                        'attachment_id' => $this->for_real ? $importer->attachment_id : '--dry-run--',
+                    );
+
+                    if( ! $importer->scraper->is_pdf_readable ) {
+                        $this->number_of_unreadable_pdfs++;
+                        WP_CLI::log( "Warning: The PDF text is not readable for file: {$file_path}. Total unreadable PDFs so far: {$this->number_of_unreadable_pdfs}" );
+                    }
+
+                    // Record the file as processed
+                    $this->previously_imported_files[] = $file_path;
+                    $this->total_processed_files++;
+                }
+
+                // Log the results
+                $this->log_results();
+                WP_CLI::success( "PDF media import completed." );
+
             }
-        }
-
-        /**
-         * Gather the duplicate posts data for logging later
-         * This will be used to log the deleted posts in a CSV file at the end of the batch
-         *
-         * @param object $post The post object that is a duplicate.
-         * @param int|string $matching_post_title_id The IDs of posts with the same title.
-         * @return void
-         */
-        private function gather_duplicate_posts_data( $duplicate_post, $matching_post_title_id ): void {
-            $duplicate_file = get_attached_file( $duplicate_post->ID );
-            $duplicate_file_exists = is_file( $duplicate_file );
-            $duplicate_file_size = $duplicate_file_exists ? filesize( $duplicate_file ) : 0;
-
-
-            $this->duplicate_posts_to_log[] = array(
-                'original_post_id'          => $matching_post_title_id,
-                'original_post_title'       => $this->unique_post_titles[$matching_post_title_id],
-                'original_pdf_url'          => get_attached_file( $matching_post_title_id ),
-                'duplicate_post_id'         => $duplicate_post->ID,
-                'duplicate_post_title'      => $duplicate_post->post_title,
-                'duplicate_pdf_url'         => $duplicate_file,
-                'duplicate_pdf_file_exists' => $duplicate_file_exists,
-                'duplicate_pdf_filesize'    => $duplicate_file_size
-            );
         }
 
         /**
@@ -368,20 +285,31 @@ if ( ! class_exists( 'PDF_Media_Deduplication_Command' ) ) {
          * @return void
          */
         private function log_results(): void {
-            // Log the number of duplicate posts found
-            WP_CLI::log( "Total duplicate posts found: {$this->total_duplicate_posts}" );
 
-            // Log the number of duplicate posts recorded or deleted
-            if ( $this->dry_run ) {
-                WP_CLI::log( 'Total duplicate posts logged: ' . count( $this->duplicate_posts_to_log ) );
-            } else {
-                WP_CLI::log( 'Total duplicate posts deleted: ' . count( $this->duplicate_posts_to_log )  );
-            }
+            WP_CLI::log( "----------------------------------------" );
+            WP_CLI::log( "Processed {$this->total_processed_files} PDFs of {$this->number_of_pdfs} PDF files found." );
+            WP_CLI::log( "Skipped files: " . count( $this->skipped_files_to_log ) );
+            WP_CLI::log( "Total unique files imported: " . count( $this->previously_imported_files ) );
 
-            // Write the duplicate posts to a CSV file
-            if (  ! empty( $this->duplicate_posts_to_log ) ) {
-                $csv_preffix = $this->dry_run ? 'dry-run-' : 'deleted-';
-                $csv_file_path = fopen( JB_DEDUP_PLUGIN_DIR . 'logs/' . $csv_preffix . 'pdf-media-duplicate-posts-' . gmdate( "Ymd-His", time() ) . '.csv', 'x' );
+            // Log the number of unreadable PDFs found during this import
+            WP_CLI::log( "Total unreadable PDFs found during this import: {$this->number_of_unreadable_pdfs}" );
+            WP_CLI::log( "Percent of unreadable PDFs in this batch: " . ( $this->number_of_pdfs > 0 ? round( ( $this->number_of_unreadable_pdfs / $this->batch_size ) * 100, 2 ) : 0 ) . "%" );
+
+            // Log the number of unreadable PDFs found during all imports, this is the cumulative total
+            $total_unreadable_pdfs = (int) get_option( 'one-time-script-pdf-libraries-unreadable-pdf-count', 0 ) + $this->number_of_unreadable_pdfs;
+            update_option( 'one-time-script-pdf-libraries-unreadable-pdf-count', $total_unreadable_pdfs );
+            WP_CLI::log( "Cumulative total of unreadable PDFs across all imports: {$total_unreadable_pdfs}" );
+            WP_CLI::log( "Culmulative percent of unreadable PDFs across all imports: " . ( $this->number_of_pdfs > 0 ? round( ( $total_unreadable_pdfs / count( $this->previously_imported_files ) ) * 100, 2 ) : 0 ) . "%" );
+
+            // Save the list of processed files to options
+            update_option( 'one-time-script-pdf-libraries-imported-file-names', $this->previously_imported_files );
+            WP_CLI::log( 'Updated the list of imported file names in options.' );
+            WP_CLI::log( "----------------------------------------" );
+
+            // Write the processed files to a CSV file
+            if (  ! empty( $this->processed_files_to_log ) ) {
+                $csv_preffix = $this->for_real ? 'for-real-' : 'dry-run-';
+                $csv_file_path = fopen( JB_LIBRARY_MAINTENANCE_PLUGIN_DIR . 'logs/' . $csv_preffix . 'pdf-media-import-' . gmdate( "Ymd-His", time() ) . '.csv', 'x' );
                 if ( ! $csv_file_path ) {
                     WP_CLI::error( 'Failed to create CSV file for duplicate posts.' );
                     return;
@@ -390,16 +318,16 @@ if ( ! class_exists( 'PDF_Media_Deduplication_Command' ) ) {
                 // Write the header and data to the CSV file
                 WP_CLI\Utils\write_csv(
                     $csv_file_path,
-                    $this->duplicate_posts_to_log,
+                    $this->processed_files_to_log,
                     array(
-                        'original_post_id',
-                        'original_post_title',
-                        'original_pdf_url',
-                        'duplicate_post_id',
-                        'duplicate_post_title',
-                        'duplicate_pdf_url',
-                        'duplicate_pdf_file_exists',
-                        'duplicate_pdf_filesize',
+                        'file_path',
+                        'file_type',
+                        'category_id',
+                        'tag_slug',
+                        'author_id',
+                        'is_readable',
+                        'post_id',
+                        'attachment_id',
                     ),
                 );
 
@@ -407,13 +335,34 @@ if ( ! class_exists( 'PDF_Media_Deduplication_Command' ) ) {
                 fclose( $csv_file_path );
             }
 
-            // Log the number of unique post titles found
-            WP_CLI::log( 'Unique PDF posts found: ' . count( $this->unique_post_titles ) );
+            // Write the skipped files to a CSV file
+            if (  ! empty( $this->skipped_files_to_log ) ) {
+                $csv_preffix = $this->for_real ? 'for-real-' : 'dry-run-';
+                $csv_file_path = fopen( JB_LIBRARY_MAINTENANCE_PLUGIN_DIR . 'logs/' . $csv_preffix . 'pdf-media-skipped' . gmdate( "Ymd-His", time() ) . '.csv', 'x' );
+                if ( ! $csv_file_path ) {
+                    WP_CLI::error( 'Failed to create CSV file for duplicate posts.' );
+                    return;
+                }
+
+                // Write the header and data to the CSV file
+                WP_CLI\Utils\write_csv(
+                    $csv_file_path,
+                    $this->skipped_files_to_log,
+                    array(
+                        'file_path',
+                        'existing_post_id',
+                    ),
+                );
+
+                WP_CLI::log( "Duplicate posts written to CSV file: {$csv_file_path}" );
+                fclose( $csv_file_path );
+            }
         }
     }
-    WP_CLI::add_command( 'pdf-media-dedup', 'PDF_Media_Deduplication_Command' );
+    WP_CLI::add_command( 'pdf-media-scrape-and-import', 'PDF_Media_Scrape_And_Import_Command' );
 }
 
+if ( class_exists( 'PDF_Media_Scrape_And_Import_Command' ) ) {
     /**
      * Clear out fields stored in wp_options related to PDF media deduplication.
      * This is useful for resetting the deduplication process.
@@ -424,12 +373,12 @@ if ( ! class_exists( 'PDF_Media_Deduplication_Command' ) ) {
      * @param none
      * @return void
      */
-    function clear_pdf_media_deduplication_options(): void {
-        delete_option( 'one-time-script-pdf-deduplication-start-post-id' );
-        delete_option( 'one-time-script-pdf-deduplication-unique-post-titles' );
+    function clear_pdf_media_import_options(): void {
+        delete_option( 'one-time-script-pdf-libraries-imported-file-names' );
+        delete_option( 'one-time-script-pdf-libraries-unreadable-pdf-count' );
         WP_CLI::log( 'Cleared PDF media deduplication options.' );
     }
-    WP_CLI::add_command( 'pdf-media-dedup-clear-options', 'clear_pdf_media_deduplication_options' );
+    WP_CLI::add_command( 'pdf-media-import-clear-options', 'clear_pdf_media_import_options' );
 
 
     /**
@@ -441,28 +390,25 @@ if ( ! class_exists( 'PDF_Media_Deduplication_Command' ) ) {
      * @param none
      * @return void
      */
-    function delete_pdf_media_deduplication_log_files(): void {
+    function delete_pdf_media_import_log_files(): void {
         WP_CLI::confirm( 'Are you sure you want to delete all PDF media deduplication log files? If you need a CSV record of changes, make sure to download it before continuing.', 'yes' );
-        $run_types = array( 'dry-run-', 'deleted-', '' );
-        foreach ( $run_types as $run_type ) {
-            $log_files = glob( JB_DEDUP_PLUGIN_DIR . 'logs/' . $run_type . 'pdf-media-duplicate-posts-*.csv' );
-            if ( ! empty( $log_files ) ) {
-                foreach ( $log_files as $file ) {
-                    @unlink( $file );
-                }
-                WP_CLI::log( 'Deleted all PDF media deduplication log CSV files.' );
-            } else {
-                WP_CLI::log( 'No log CSV files found to delete.' );
+        $log_files = glob( JB_LIBRARY_MAINTENANCE_PLUGIN_DIR . 'logs/' . '*.csv' );
+        if ( ! empty( $log_files ) ) {
+            foreach ( $log_files as $file ) {
+                @unlink( $file );
             }
+            WP_CLI::log( 'Deleted all PDF media import log CSV files.' );
+        } else {
+            WP_CLI::log( 'No log CSV files found to delete.' );
         }
     }
-    WP_CLI::add_command( 'pdf-media-dedup-delete-logs', 'delete_pdf_media_deduplication_log_files' );
+    WP_CLI::add_command( 'pdf-media-import-delete-logs', 'delete_pdf_media_import_log_files' );
 
     /**
      * Check that the PDF parser is able to read the content of PDF files in a specified directory.
      *
      * Usage:
-     *  wp pdf-media-dedup-delete-logs
+     *  wp check-pdf-media-detail-for-sds
      *
      * @param array $assoc_args
      * - Arguments include:
@@ -584,7 +530,7 @@ if ( ! class_exists( 'PDF_Media_Deduplication_Command' ) ) {
      * Check that the PDF parser is able to read the content of PDF files in a specified directory.
      *
      * Usage:
-     *  wp pdf-media-dedup-delete-logs
+     *  wp check-pdf-media-detail-for-tds
      *
      * @param array $assoc_args
      * - Arguments include:
@@ -683,18 +629,18 @@ if ( ! class_exists( 'PDF_Media_Deduplication_Command' ) ) {
     WP_CLI::add_command( 'check-pdf-media-detail-for-tds', 'check_pdf_media_tds_content' );
 
     /**
-     * Clear out CSV Log files stored in jb-deduplication/logs related to PDF media deduplication.
+     * Check the content of a single PDF file in the media library.
      *
      * Usage:
-     *  wp pdf-media-dedup-delete-logs
+     *  wp log-single-pdf-media-detail
      *
      * @param array $assoc_args
      * - Arguments include:
-     *  --file-path - Subdirectory path for the group of PDFs to be processed
+     *  --file-path - Uploads subdirectory path for the single PDF to log
      * @return void
      */
     function log_single_pdf_media_detail( array $args, array $assoc_args = []): void {
-        write_log( 'Starting single PDF media check' );
+        WP_CLI::log( 'Starting single PDF media check' );
 
         $wp_uploads_dir = wp_get_upload_dir();
         $file_path = $wp_uploads_dir['basedir'] . '/';
@@ -708,9 +654,9 @@ if ( ! class_exists( 'PDF_Media_Deduplication_Command' ) ) {
 
         $scraper = new JB_PDF_Scraper( $file_path );
         $scraped_text = $scraper->scrape_pdf_text();
-        write_log( "Scraped text:" );
-        write_log( $scraped_text );
-        WP_CLI::log( "Text written to log" );
+        WP_CLI::log( "Scraped text:" );
+        WP_CLI::log( $scraped_text );
     }
 
     WP_CLI::add_command( 'log-single-pdf-media-detail', 'log_single_pdf_media_detail' );
+}

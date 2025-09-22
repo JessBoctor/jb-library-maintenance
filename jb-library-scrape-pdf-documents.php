@@ -104,16 +104,16 @@ if ( ! class_exists( 'JB_PDF_Scraper' ) ) {
             // We aren't sure which type of characters may be causing the issue
             // So we will try multiple preg_replace based on unicode types
             // UTF-8
-            $cleaned_text = preg_replace( '/[^\x0A\x20-\x7E]/','', $text );
+            $cleaned_text = preg_replace( '/[^\x0A\x20-\x7E]/',' ', $text );
 
             // 8 bit extended ASCII
             if ( empty( $cleaned_text ) ) {
-                $cleaned_text = preg_replace('/[\x00-\x1F\x7F]/', '', $text);
+                $cleaned_text = preg_replace('/[\x00-\x1F\x7F]/', ' ', $text);
             }
 
             // 7 bit ASCII
             if ( empty( $cleaned_text ) ) {
-                $cleaned_text = preg_replace('/[\x00-\x1F\x7F-\xFF]/', '', $text );
+                $cleaned_text = preg_replace('/[\x00-\x1F\x7F-\xFF]/', ' ', $text );
             }
 
             $this->cleaned_text = $cleaned_text;
