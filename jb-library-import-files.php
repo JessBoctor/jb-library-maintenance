@@ -146,12 +146,6 @@ class JB_Library_File_Importer {
                 'post_status'  => 'publish',
                 'post_type'    => 'dlp_document',
                 'post_author'  => $this->author_id,
-                'tax_input'    => array(
-                    'doc_categories' => $this->category_id ? array( $this->category_id ) : array(),
-                    'doc_tags'       => $this->tag_slug ? array( $this->tag_slug ) : array(),
-                    'doc_author'     => $this->author_id,
-                    'file_type'      => $this->file_type,
-                ),
                 'meta_input'   => array(
                     '_dlp_document_link_type' => 'file',
                     '_dlp_attached_file_id'   => $attachment_id,
@@ -160,6 +154,12 @@ class JB_Library_File_Importer {
                 ),
             )
         );
+
+        // Set the document taxonomies if one was determined
+        wp_set_object_terms( $doctument_id, $this->category_id, 'doc_categories', false );
+        wp_set_object_terms( $doctument_id, $this->tag_slug, 'doc_tags', false );
+        wp_set_object_terms( $doctument_id, $this->file_type, 'file_type', false );
+        wp_set_object_terms( $doctument_id, $this->author_id, 'doc_author', false );
    
         if ( is_wp_error( $doctument_id ) ) {
             return new WP_Error( "Failed to create DLP_Document post: " . $doctument_id->get_error_message() );
