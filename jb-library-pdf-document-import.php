@@ -191,26 +191,40 @@ if ( ! class_exists( 'PDF_Media_Scrape_And_Import_Command' ) ) {
                     // Set up the file Importer
                     $importer = new JB_Library_File_Importer( $file_path );
 
-                    // Skip files that have already been imported
-                    if (
-                        $this->for_real
-                        && array_key_exists(
-                            strtolower( str_replace( '.', '-', $importer->file_name ) ),
-                            $existing_document_posts
-                        )
-                    ) {
-                        WP_CLI::log( "Skipping already imported file (post exists): {$file_path} as post ID {$existing_document_posts[ $importer->file_name ]}" );
+                    // Handle for-real actions
+                    if ( $this->for_real ) {
+                        // Skip files that have already been imported
+                        if (
+                            array_key_exists(
+                                $importer->file_name,
+                                $existing_document_posts_by_name
+                            )
+                        ) {
+                            WP_CLI::log( "Skipping already imported file (post exists): {$file_path} as post ID {$existing_document_posts_by_name[ $importer->file_name ]}" );
 
-                        // Store the skipped file info for logging later
-                        $this->skipped_files_to_log[$importer->file_name] = array(
-                            'file_path' => $file_path,
-                            'existing_post_id'   => $existing_document_posts[ $importer->file_name ],
-                        );
-                        WP_CLI::log( "Skipped files so far: " . count( $this->skipped_files_to_log ) );
+                            // Store the skipped file info for logging later
+                            $this->skipped_files_to_log[$importer->file_name] = array(
+                                'file_path' => $file_path,
+                                'existing_post_id'   => $existing_document_posts_by_name[ $importer->file_name ],
+                            );
+                            WP_CLI::log( "Skipped files so far: " . count( $this->skipped_files_to_log ) );
 
-                        // Carry on
-                        continue;
-                    } else {
+                            // Carry on
+                            continue;
+                        }
+
+                        // If the file isn't skipped, import it
+                        WP_CLI::log( "Importing file ({$file_number} of {$this->number_of_pdfs}): {$file_path}" );
+                        $result = $importer->import_file();
+                        if ( is_wp_error( $result ) ) {
+                            WP_CLI::error( "Failed to import file {$file_path}: " . $result->get_error_message() );
+                            continue;
+                        }
+                        WP_CLI::log( "Successfully imported file: {$file_path} as post ID {$result}" );
+                    }
+
+                    // Handle dry-run actions
+                    if ( ! $this->for_real ) {
                         if ( in_array( $file_path, $this->previously_imported_files, true ) ) {
                             WP_CLI::log( "Skipping already imported file: {$file_path}" );
 
@@ -224,18 +238,8 @@ if ( ! class_exists( 'PDF_Media_Scrape_And_Import_Command' ) ) {
                             // Carry on
                             continue;
                         }
-                    }
 
-                    // Handle the import
-                    if ( $this->for_real ) {
-                        WP_CLI::log( "Importing file ({$file_number} of {$this->number_of_pdfs}): {$file_path}" );
-                        $result = $importer->import_file();
-                        if ( is_wp_error( $result ) ) {
-                            WP_CLI::error( "Failed to import file {$file_path}: " . $result->get_error_message() );
-                            continue;
-                        }
-                        WP_CLI::log( "Successfully imported file: {$file_path} as post ID {$result}" );
-                    } else {
+                        // If the file shouldn't be skipped, simulate the import
                         WP_CLI::log( "Dry run: Would import file: {$file_path}" );
                         WP_CLI::log( "Import Details:
                             File Name: {$importer->file_name}
@@ -255,7 +259,7 @@ if ( ! class_exists( 'PDF_Media_Scrape_And_Import_Command' ) ) {
                         'tag_slug'     => $importer->tag_slug,
                         'author_id'    => $importer->author_id,
                         'is_readable'  => $importer->scraper->is_pdf_readable ? 'Yes' : 'No',
-                        'post_id'      => $this->for_real ? $result : '--dry-run--',
+                        'post_id'      =>  $this->for_real ? $importer->document_id : '--dry-run--',
                         'attachment_id' => $this->for_real ? $importer->attachment_id : '--dry-run--',
                     );
 
