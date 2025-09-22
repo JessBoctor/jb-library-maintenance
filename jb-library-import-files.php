@@ -201,9 +201,10 @@ class JB_Library_File_Importer {
         } else {
             // If we can't determine the type, return a snippet from the start of the document
             return wp_trim_excerpt(
-                trim(
+                preg_replace(
+                    '/\s+/',
+                    ' ',
                     substr( $this->scraper->cleaned_text, 0, 150 ),
-                    "\t\n\r\0\x0B" // Trim common punctuation and whitespace
                 )
             );
         }
@@ -219,27 +220,26 @@ class JB_Library_File_Importer {
         }
 
         // Extract the Identification section by searching for the "Identification" and "Hazard" subtitles
-        $identification_start_position = $this->scraper->find_substring_position("identification") + 14; // 14 is the length of the word "identification"
-        $hazard_start_position = $this->scraper->find_substring_position("hazard");
+        $identification_start_position = $this->scraper->find_substring_position("identification");
 
-        // If we can't find either subtitle, return an empty string
-        if ( -1 === $identification_start_position || -1 === $hazard_start_position ) {
-            return '';
+        // If we can't find the identification subtitle, return an a generic string
+        if ( -1 === $identification_start_position ) {
+            $excerpt = substr( $this->scraper->cleaned_text, 0, 150 ) . "...";
+            return wp_trim_excerpt(
+                preg_replace(
+                    '/\s+/',
+                    ' ',
+                    $excerpt
+                )
+            );
         }
 
-        // Sometimes, things get out of order, so we need to make sure the positions make sense
-        if ( $identification_start_position > $hazard_start_position ) {
-            $identification_start_position = 1;
-        }
-
-        // Figure out how long the "Identification" section is
-        $section_text_length = $hazard_start_position - $identification_start_position;
-
-        $identification_section = substr( $this->scraper->cleaned_text, $identification_start_position, $section_text_length );
+        $identification_section = substr( $this->scraper->cleaned_text, $identification_start_position, 150 ) . "...";
         return wp_trim_excerpt(
-                trim(
-                    $identification_section,
-                    "\t\n\r\0\x0B" // Trim common punctuation and whitespace
+               preg_replace(
+                    '/\s+/',
+                    ' ',
+                    $identification_section
                 )
             );
     }
@@ -268,16 +268,24 @@ class JB_Library_File_Importer {
 
         if ( empty( $positive_positions ) ) {
             // If no keywords are found, return a snippet from the start of the document
-            return wp_trim_excerpt( substr( $this->scraper->cleaned_text, 0, 150 ) );
+            $excerpt = substr( $this->scraper->cleaned_text, 0, 150 ) . "...";
+            return wp_trim_excerpt( 
+                preg_replace(
+                    '/\s+/',
+                    ' ',
+                    $excerpt
+                )
+             );
         }
 
         // Get the term with the earliest positive position
         $best_term = array_search( min( $positive_positions ), $positive_positions );
-        $excerpt = substr( $this->scraper->cleaned_text, $search_terms[ $best_term ], 150 );
+        $excerpt = substr( $this->scraper->cleaned_text, $search_terms[ $best_term ], 150 ) . "...";
         return wp_trim_excerpt(
-            trim(
-                $excerpt,
-                "\t\n\r\0\x0B" // Trim common punctuation and whitespace
+            preg_replace(
+                    '/\s+/',
+                    ' ',
+                $excerpt
             )
         );
     }
