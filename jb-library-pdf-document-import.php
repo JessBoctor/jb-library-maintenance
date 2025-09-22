@@ -9,7 +9,7 @@
  *
  * Examples:
  *   wp pdf-media-scrape-and-import --for-real
- *   wp pdf-media-dedup --skip-confirmations
+ *   wp pdf-media-scrape-and-import --skip-confirmations
  *
  * Run the above commands from the terminal.
  */
