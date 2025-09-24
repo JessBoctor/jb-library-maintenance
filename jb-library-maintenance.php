@@ -68,4 +68,3 @@ require_once JB_LIBRARY_MAINTENANCE_PLUGIN_DIR . 'jb-library-set-import-options.
 require_once JB_LIBRARY_MAINTENANCE_PLUGIN_DIR . 'jb-library-pdf-document-import.php';
 require_once JB_LIBRARY_MAINTENANCE_PLUGIN_DIR . 'jb-library-import-files.php';
 require_once JB_LIBRARY_MAINTENANCE_PLUGIN_DIR . 'jb-library-scrape-pdf-documents.php';
-//require_once JB_LIBRARY_MAINTENANCE_PLUGIN_DIR . 'jb-dlp-document-deduplication.php';
