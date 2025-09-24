@@ -315,12 +315,16 @@ if ( ! class_exists( 'DLP_Document_Deletion_Command' ) ) {
                             if ( $this->for_real ) {
                                 // Delete the file
                                 $attached_pdf_meta['file_deleted'] = wp_delete_attachment( $pdf_post_id, true );
-                                if ( ! $attached_pdf_meta['file_deleted'] ) {
-                                    $attached_pdf_meta['file_deleted'] = unlink( $attached_pdf_meta['pdf_file_path'] );
+                                if ( ! $attached_pdf_meta['file_deleted'] && file_exists( $pdf_file_path ) ) {
+                                    $attached_pdf_meta['file_deleted'] = unlink( $pdf_file_path );
                                 }
                                 // Log the deletion
                                 if ( ! $attached_pdf_meta['file_deleted'] ) {
-                                    WP_CLI::warning( "Failed to delete PDF file at {$pdf_file_path}." );
+                                    if ( $pdf_file_path ) {
+                                        WP_CLI::warning( "Failed to delete PDF file at {$pdf_file_path}." );
+                                    } else {
+                                        WP_CLI::warning( "No PDF file path found to delete for post ID {$pdf_post_id}." );
+                                    }
                                 } else {
                                     WP_CLI::log( "Deleted PDF file at {$pdf_file_path}." );
                                 }
