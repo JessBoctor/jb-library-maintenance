@@ -1,6 +1,6 @@
 <?php
 /**
- * PDF Media Deduplication WP-CLI Command
+ * PDF Media Import WP-CLI Command
  *
  * Requires WP-CLI to be installed and activated.
  *
@@ -140,7 +140,7 @@ if ( ! class_exists( 'PDF_Media_Scrape_And_Import_Command' ) ) {
                 WP_CLI::log( 'No previously imported file names found in options. Starting from scratch.' );
             }
 
-            // Being the deduplication process
+            // Being the import process
             $this->import_pdfs();
         }
 
@@ -281,7 +281,7 @@ if ( ! class_exists( 'PDF_Media_Scrape_And_Import_Command' ) ) {
         }
 
         /**
-         * Handle logging the results of the deduplication process.
+         * Handle logging the results of the import process.
          * @return void
          */
         private function log_results(): void {
@@ -386,7 +386,7 @@ if ( class_exists( 'PDF_Media_Scrape_And_Import_Command' ) ) {
     function clear_pdf_media_import_options(): void {
         delete_option( 'one-time-script-pdf-libraries-imported-file-names' );
         delete_option( 'one-time-script-pdf-libraries-unreadable-pdf-count' );
-        WP_CLI::log( 'Cleared PDF media deduplication options.' );
+        WP_CLI::log( 'Cleared PDF media import options.' );
     }
     WP_CLI::add_command( 'pdf-media-import-clear-options', 'clear_pdf_media_import_options' );
 
@@ -401,7 +401,7 @@ if ( class_exists( 'PDF_Media_Scrape_And_Import_Command' ) ) {
      * @return void
      */
     function delete_pdf_media_import_log_files(): void {
-        WP_CLI::confirm( 'Are you sure you want to delete all PDF media deduplication log files? If you need a CSV record of changes, make sure to download it before continuing.', 'yes' );
+        WP_CLI::confirm( 'Are you sure you want to delete all PDF media import log files? If you need a CSV record of changes, make sure to download it before continuing.', 'yes' );
         $log_files = glob( JB_LIBRARY_MAINTENANCE_PLUGIN_DIR . 'logs/' . '*.csv' );
         if ( ! empty( $log_files ) ) {
             foreach ( $log_files as $file ) {
