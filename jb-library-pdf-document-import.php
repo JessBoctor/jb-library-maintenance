@@ -299,7 +299,7 @@ if ( ! class_exists( 'PDF_Media_Scrape_And_Import_Command' ) ) {
             $total_unreadable_pdfs = (int) get_option( 'one-time-script-pdf-libraries-unreadable-pdf-count', 0 ) + $this->number_of_unreadable_pdfs;
             update_option( 'one-time-script-pdf-libraries-unreadable-pdf-count', $total_unreadable_pdfs );
             WP_CLI::log( "Cumulative total of unreadable PDFs across all imports: {$total_unreadable_pdfs}" );
-            WP_CLI::log( "Culmulative percent of unreadable PDFs across all imports: " . ( $this->number_of_pdfs > 0 ? round( ( $total_unreadable_pdfs / count( $this->previously_imported_files ) ) * 100, 2 ) : 0 ) . "%" );
+            WP_CLI::log( "Cumulative percent of unreadable PDFs across all imports: " . ( $this->number_of_pdfs > 0 ? round( ( $total_unreadable_pdfs / count( $this->previously_imported_files ) ) * 100, 2 ) : 0 ) . "%" );
 
             // Save the list of processed files to options
             update_option( 'one-time-script-pdf-libraries-imported-file-names', $this->previously_imported_files );
@@ -374,11 +374,11 @@ if ( ! class_exists( 'PDF_Media_Scrape_And_Import_Command' ) ) {
 
 if ( class_exists( 'PDF_Media_Scrape_And_Import_Command' ) ) {
     /**
-     * Clear out fields stored in wp_options related to PDF media deduplication.
-     * This is useful for resetting the deduplication process.
+     * Clear out fields stored in wp_options related to PDF media import.
+     * This is useful for resetting the import process.
      *
      * Usage:
-     *  wp pdf-media-dedup-clear-options
+     *  wp pdf-media-import-clear-options
      *
      * @param none
      * @return void
@@ -392,10 +392,10 @@ if ( class_exists( 'PDF_Media_Scrape_And_Import_Command' ) ) {
 
 
     /**
-     * Clear out CSV Log files stored in jb-deduplication/logs related to PDF media deduplication.
+     * Clear out CSV Log files stored in jb-library-maintenance/logs related to PDF media import.
      *
      * Usage:
-     *  wp pdf-media-dedup-delete-logs
+     *  wp pdf-media-import-delete-logs
      *
      * @param none
      * @return void
