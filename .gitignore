@@ -31,6 +31,7 @@ wp-config.php
 
 # Log files
 *.log
+/wp-content/plugins/jb-library-maintenance/logs/
 
 # htaccess
 /.htaccess
