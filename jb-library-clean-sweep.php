@@ -406,6 +406,11 @@ if ( ! class_exists( 'DLP_Document_Deletion_Command' ) ) {
 
             // Write the duplicate posts to a CSV file
             if (  ! empty( $this->stash_deleted_dlp_doc_posts ) ) {
+                // Create the logs directory if it doesn't exist
+                if ( ! is_dir( JB_LIBRARY_MAINTENANCE_PLUGIN_DIR . 'logs/' ) ) {
+                    WP_CLI::log( 'Creating logs directory...' );
+                    wp_mkdir_p( JB_LIBRARY_MAINTENANCE_PLUGIN_DIR . 'logs/' );
+                }
                 $csv_prefix = $this->for_real ? 'for-real-' : 'dry-run-';
                 $csv_file_path = fopen( JB_LIBRARY_MAINTENANCE_PLUGIN_DIR . 'logs/' . $csv_prefix . 'deleted-dlp-doc-posts-' . gmdate( "Ymd-His", time() ) . '.csv', 'x' );
                 if ( ! $csv_file_path ) {
