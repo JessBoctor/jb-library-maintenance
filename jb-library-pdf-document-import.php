@@ -317,6 +317,15 @@ if ( ! class_exists( 'PDF_Media_Scrape_And_Import_Command' ) ) {
             WP_CLI::log( 'Updated the list of imported file names in options.' );
             WP_CLI::log( "----------------------------------------" );
 
+            // Get ready to write CSV logs
+            // Create the logs directory if it doesn't exist
+            if ( ! is_dir( JB_LIBRARY_MAINTENANCE_PLUGIN_DIR . 'logs/' ) ) {
+                WP_CLI::log( 'Creating logs directory...' );
+                wp_mkdir_p( JB_LIBRARY_MAINTENANCE_PLUGIN_DIR . 'logs/' );
+            }
+            // Set the CSV file prefix based on mode
+            $csv_preffix = $this->for_real ? 'for-real-' : 'dry-run-';
+
             // Write the processed files to a CSV file
             if (  ! empty( $this->processed_files_to_log ) ) {
                 // Create the logs directory if it doesn't exist
