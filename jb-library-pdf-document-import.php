@@ -746,12 +746,15 @@ if ( class_exists( 'PDF_Media_Scrape_And_Import_Command' ) ) {
             WP_CLI::log( 'Found ' . count( $posts[ $post_type ] ) . " posts of type {$post_type}." );
 
             // Figure out how many posts could be missing
-            $missing_post_count = $pdf_count - count( $posts[ $post_type ] );
-            if ( $missing_post_count > 0 ) {
-                WP_CLI::warning( 'Potentially missing ' . $missing_post_count . " posts of type {$post_type}." );
-            } else {
-                WP_CLI::log( "Number of {$post_type} and files match, checking file names against post titles to be sure." );
-            }
+            if ( ! empty( $posts[ $post_type ] ) ) {
+                $missing_post_count = $pdf_count - count( $posts[ $post_type ] );
+                if ( $missing_post_count > 0 ) {
+                    WP_CLI::warning( 'Potentially missing ' . $missing_post_count . " posts of type {$post_type}." );
+                } else {
+                    WP_CLI::log( "Number of {$post_type} and files match, checking file names against post titles to be sure." );
+                }
+
+                WP_CLI::log( print_r( $posts[$post_type][0], true ) );
 
             WP_CLI::log( print_r( $posts[$post_type][0], true ) );
         }
