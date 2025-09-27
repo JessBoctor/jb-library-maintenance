@@ -1,2 +1,62 @@
 # jb-library-maintenance
 A WordPress plugin which extends Document Library Pro with custom maintenance functionality.
+
+General process for using this plugin:
+
+## Backups
+Start by making a backup of your site. This plugin takes destructive actions, so you want to have a backup ready to go.
+
+## Access
+You will need to have access to WP_CLI and the SFTP to make full use of this plugin
+
+## Clean Sweep
+The `clean sweep` functionality of this plugin is designed to remove any Document Library Pro (`dlp_document`) posts and their corresponding media attachments (`attachment`).
+
+- If you have run the clean sweep command before, run the options to clear out the old options and logs
+`wp dlp-document-delete-clear-options`
+`wp dlp-document-delete-clear-logs`
+
+- Run the clean sweep command to remove all of the old DLP document posts and doc_tags
+`wp dlp-document-delete --skip-confirmations --batch-size=15000 --for-real`
+
+- If you’re not ready yet, you can run it with the “--for-real” tag left off to test
+
+## PDF Media Delete
+If there were any SDS or TDS attachments which weren't connected to a `dlp_document` post, they may have slipped through the clean sweep. You can delete them with the PDF Media Delete tool.
+
+- Check for any attachment PDFs with SDS or TDS in the name
+`wp pdf-media-delete-clear-options`
+`wp pdf-media-delete-clear-logs`
+`wp pdf-media-delete`
+
+## Check the site
+At this point, you want to check the site content to make sure everything is really gone. This includes:
+- WP Admin: Check the media library and documents sections to make sure there are no posts related to SDS and TDS PDFs
+- phpmyadmin: export any PDF files with SDS or TDS in the name, just to make sure you can remove those posts later.
+- SFTP: If any of the files were in a specific sub-directory, check it and delete any files which are left behind. Just make sure to remove the posts too!
+
+## Create new tags
+Since the old taxonomies have been deleted with the posts, create the new `doc_tag` terms using the stock code prefixes.
+- Run `wp create-stock-code-doc-tags`
+
+## Upload New PDFs
+Upload the .zip files for the SDS and TDS files to the `wp-content/uploads` directory via SFTP. Decompress the files. This will create new `SDS` and `TDS` subdirectories for the files. There will be two `SDS` .zip files, so you will need to combine them.
+
+## Import the files
+Now we are ready to import the PDFs into media attachments and document posts.
+
+- If you have run the importer before, make sure to clear out the importer options and logs
+`wp pdf-media-import-clear-options`
+`wp pdf-media-import-delete-logs`
+
+- Run a few small batches of the file imports
+`wp pdf-media-scrape-and-import --subdirectory-path=SDS --batch-size=15 --for-real`
+`wp pdf-media-scrape-and-import --subdirectory-path=TDS --batch-size=15 --for-real`
+
+- If you are happy with the results, run the imports in larger batch sizes. Keep in mind, the larger the size, the longer it will take to finish
+
+## Failed Imports
+A log of files that failed to import should be printed. If you aren’t sure if it is correct, you can run the status check command
+`wp check-pdf-import-status`
+
+It will print any files which do not have corresponding `dlp_document` or `attachment` posts.
