@@ -767,8 +767,10 @@ if ( class_exists( 'PDF_Media_Scrape_And_Import_Command' ) ) {
                 $file_pluck_key = $post_type === 'attachment' ? 'file_path' : 'file_name';
 
                 // Format the post names for comparison
-                $posts_by_name = wp_list_pluck( $posts[ $post_type ], $pluck_key );
-                $files_with_missing_posts = array_diff( $all_pdf_files, $posts_by_name );
+                $plucked_posts = wp_list_pluck( $posts[ $post_type ], $post_pluck_key );
+                $plucked_files = wp_list_pluck( $all_pdf_files, $file_pluck_key );
+                $files_with_missing_posts = array_diff( $plucked_files, $plucked_posts );
+
                 if ( ! empty( $files_with_missing_posts ) ) {
                     WP_CLI::warning( 'Found ' . count( $files_with_missing_posts ) . " files with no corresponding {$post_type} post." );
                     WP_CLI::log( print_r( $files_with_missing_posts, true ) );
