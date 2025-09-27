@@ -828,4 +828,38 @@ if ( class_exists( 'PDF_Media_Scrape_And_Import_Command' ) ) {
     }
 
     WP_CLI::add_command( 'check-pdf-import-status', 'check_pdf_import_status' );
+
+    /**
+     * Import Single PDF media files from a specified file path.
+     *
+     * @param array $assoc_args
+     * args:
+     *  --file-path - A path to a single file to import
+     *  --for-real - Whether to perform the import for real (default: false)
+     * @return void
+     */
+    function import_single_pdf( array $args, array $assoc_args = [] ): void {
+        WP_CLI::log( 'Starting PDF media import...' );
+
+        // Determine the file path
+        if ( isset( $assoc_args['file-path'] ) && is_string( $assoc_args['file-path'] ) ) {
+            $file_path = $assoc_args['file-path'];
+            WP_CLI::confirm( "Use file path: {$file_path} ?", 'yes' );
+        } else {
+             WP_CLI::error( "You must provide a --file-path argument." );
+            return;
+        }
+
+        // Determine if we are running in dry run mode
+            $for_real = isset( $assoc_args['for-real'] );
+            if ( $for_real ) {
+                WP_CLI::log( 'Running in live mode, FOR REAL. Files will be imported.'  );
+            } else {
+                WP_CLI::log( ' Running in test mode. No files will be imported.' );
+            }
+
+        }
+    }
+
+    WP_CLI::add_command( 'import-single-pdf', 'import_single_pdf' );
 }
