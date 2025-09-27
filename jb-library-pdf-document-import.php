@@ -683,7 +683,9 @@ if ( class_exists( 'PDF_Media_Scrape_And_Import_Command' ) ) {
      * @return void
      */
     function check_pdf_import_status( array $args, array $assoc_args = []): void {
+        WP_CLI::log( '-------------------------------------' );
         WP_CLI::log( 'Starting PDF import check' );
+        WP_CLI::log( '-------------------------------------' );
 
         // Get all of the PDFs from the specified directories
         if ( isset( $assoc_args['subdirectories'] ) && is_string( $assoc_args['subdirectories'] ) ) {
@@ -722,9 +724,11 @@ if ( class_exists( 'PDF_Media_Scrape_And_Import_Command' ) ) {
                 WP_CLI::log( "No PDF files found in the specified directory: {$directory_path}." );
             }
         }
+
         $pdf_count = count( $all_pdf_files );
         WP_CLI::log( "Total PDF files found: {$pdf_count}" );
-        WP_CLI::log( 'Loaded PDFs from directories.' );
+        WP_CLI::log( 'All PDFs from directories are loaded.' );
+        WP_CLI::log( '-------------------------------------' );
 
         // Pull all of the posts of the specified types
         // Default to checking both documents and attachments
@@ -735,6 +739,7 @@ if ( class_exists( 'PDF_Media_Scrape_And_Import_Command' ) ) {
             $post_types = array( 'dlp_document', 'attachment' );
         }
         WP_CLI::log( 'Checking post types: ' . implode( ', ', $post_types ) );
+        WP_CLI::log( '-------------------------------------' );
 
         global $wpdb;
         $posts = array();
@@ -778,10 +783,8 @@ if ( class_exists( 'PDF_Media_Scrape_And_Import_Command' ) ) {
                     WP_CLI::success( "All files have corresponding {$post_type} posts." );
                 }
             }
+            WP_CLI::log( '-------------------------------------' );
         }
-
-        // Figure out how to compare the two arrays
-
     }
 
     WP_CLI::add_command( 'check-pdf-import-status', 'check_pdf_import_status' );
