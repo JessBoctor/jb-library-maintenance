@@ -77,6 +77,12 @@ if ( ! class_exists( 'PDF_Media_Scrape_And_Import_Command' ) ) {
         private $processed_files_to_log = array();
 
         /**
+         * Holds the information of the files which were processed
+         * @var array
+         */
+        private $failed_imports_to_log = array();
+
+        /**
          * The count of unreadable PDFs found during import
          * @var int
          */
