@@ -709,4 +709,123 @@ if ( class_exists( 'PDF_Media_Scrape_And_Import_Command' ) ) {
     }
 
     WP_CLI::add_command( 'log-single-pdf-media-detail', 'log_single_pdf_media_detail' );
+
+    /**
+     * Check the if all PDFs were uploaded to media attachements or documents
+     *
+     * Usage:
+     *  wp check-pdf-import-status
+     *
+     * @param array $assoc_args
+     * - Arguments include:
+     *  --subdirectories - Comma separated subdirectories path for the groups of PDFs to be processed
+     *  --post-type - Comma separated post types to check (default: dlp_document,attachment)
+     * @return void
+     */
+    function check_pdf_import_status( array $args, array $assoc_args = []): void {
+        WP_CLI::log( '-------------------------------------' );
+        WP_CLI::log( 'Starting PDF import check' );
+        WP_CLI::log( '-------------------------------------' );
+
+        // Get all of the PDFs from the specified directories
+        if ( isset( $assoc_args['subdirectories'] ) && is_string( $assoc_args['subdirectories'] ) ) {
+            $subdirectory_paths = array_map( 'trim', explode( ',', $assoc_args['subdirectories'] ) );
+        } else {
+            $subdirectory_paths = array( 'SDS', 'TDS' );
+        }
+
+        WP_CLI::log( 'Checking subdirectories: ' . implode( ', ', $subdirectory_paths ) );
+        $wp_uploads_dir = wp_get_upload_dir();
+        $all_pdf_files = array();
+        $file_number = 0;
+        foreach ( $subdirectory_paths as $subdirectory_path ) {
+            $directory_path = $wp_uploads_dir['basedir'] . '/' . rtrim( $subdirectory_path, '/' ) . '/';
+            if ( is_dir( $directory_path ) ) {
+                WP_CLI::log( "Using directory path: {$directory_path}" );
+            } else {
+                WP_CLI::error( "The specified directory does not exist: {$directory_path}" );
+                return;
+            }
+
+            // Get all PDF files in the directory
+            $pdf_files = array_filter( glob( $directory_path . '*.pdf' ), 'is_file' );
+            if ( ! empty( $pdf_files ) ) {
+                WP_CLI::log( 'Found ' . count( $pdf_files ) . " PDF files in {$directory_path}." );
+                foreach ( $pdf_files as $file_path) {
+                    $file_number++;
+                    $file_info = pathinfo( $file_path );
+                    $file_name = $file_info['filename'] . '.' . $file_info['extension'];
+                    $all_pdf_files[ $file_number ] = array(
+                        'file_path' => $file_path,
+                        'file_name' => $file_name,
+                    );
+                }
+            } else {
+                WP_CLI::log( "No PDF files found in the specified directory: {$directory_path}." );
+            }
+        }
+
+        $pdf_count = count( $all_pdf_files );
+        WP_CLI::log( "Total PDF files found: {$pdf_count}" );
+        WP_CLI::log( 'All PDFs from directories are loaded.' );
+        WP_CLI::log( '-------------------------------------' );
+
+        // Pull all of the posts of the specified types
+        // Default to checking both documents and attachments
+        // If a --post-type argument is provided, use that instead
+        if ( isset( $assoc_args['post-type'] ) && is_string( $assoc_args['post-type'] ) ) {
+            $post_types = array_map( 'trim', explode( ',', $assoc_args['post-type'] ) );
+        } else {
+            $post_types = array( 'dlp_document', 'attachment' );
+        }
+        WP_CLI::log( 'Checking post types: ' . implode( ', ', $post_types ) );
+        WP_CLI::log( '-------------------------------------' );
+
+        global $wpdb;
+        $posts = array();
+
+        foreach ( $post_types as $post_type ) {
+            $posts[ $post_type ] = $wpdb->get_results(
+                $wpdb->prepare(
+                    "SELECT ID, post_title, guid
+                    FROM $wpdb->posts
+                    WHERE post_type = %s
+                    AND ( post_title LIKE '%SDS%' OR post_title LIKE '%TDS%' )
+                    AND ( post_mime_type = 'application/pdf' OR post_mime_type = '' )
+                    ",
+                    $post_type
+                ),
+                ARRAY_A
+            );
+            WP_CLI::log( 'Found ' . count( $posts[ $post_type ] ) . " posts of type {$post_type}." );
+
+            // Figure out how many posts could be missing
+            if ( ! empty( $posts[ $post_type ] ) ) {
+                $missing_post_count = $pdf_count - count( $posts[ $post_type ] );
+                if ( $missing_post_count > 0 ) {
+                    WP_CLI::warning( 'Potentially missing ' . $missing_post_count . " posts of type {$post_type}." );
+                } else {
+                    WP_CLI::log( "Number of {$post_type} and files match, checking file names against post titles to be sure." );
+                }
+
+                $post_pluck_key = $post_type === 'attachment' ? 'guid' : 'post_title';
+                $file_pluck_key = $post_type === 'attachment' ? 'file_path' : 'file_name';
+
+                // Format the post names for comparison
+                $plucked_posts = wp_list_pluck( $posts[ $post_type ], $post_pluck_key );
+                $plucked_files = wp_list_pluck( $all_pdf_files, $file_pluck_key );
+                $files_with_missing_posts = array_diff( $plucked_files, $plucked_posts );
+
+                if ( ! empty( $files_with_missing_posts ) ) {
+                    WP_CLI::warning( 'Found ' . count( $files_with_missing_posts ) . " files with no corresponding {$post_type} post." );
+                    WP_CLI::log( print_r( $files_with_missing_posts, true ) );
+                } else {
+                    WP_CLI::success( "All files have corresponding {$post_type} posts." );
+                }
+            }
+            WP_CLI::log( '-------------------------------------' );
+        }
+    }
+
+    WP_CLI::add_command( 'check-pdf-import-status', 'check_pdf_import_status' );
 }
