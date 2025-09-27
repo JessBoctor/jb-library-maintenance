@@ -851,12 +851,35 @@ if ( class_exists( 'PDF_Media_Scrape_And_Import_Command' ) ) {
         }
 
         // Determine if we are running in dry run mode
-            $for_real = isset( $assoc_args['for-real'] );
-            if ( $for_real ) {
-                WP_CLI::log( 'Running in live mode, FOR REAL. Files will be imported.'  );
-            } else {
-                WP_CLI::log( ' Running in test mode. No files will be imported.' );
-            }
+        $for_real = isset( $assoc_args['for-real'] );
+        if ( $for_real ) {
+            WP_CLI::log( 'Running in live mode, FOR REAL. Files will be imported.'  );
+        } else {
+            WP_CLI::log( ' Running in test mode. No files will be imported.' );
+        }
+
+        // Set up the file Importer
+        $importer = new JB_Library_File_Importer( $file_path );
+
+        // Check if a post already exists
+        global $wpdb;
+
+        $existing_document_post = $wpdb->get_results(
+            $wpdb->prepare(
+                "SELECT ID, post_title
+                FROM $wpdb->posts
+                WHERE post_type = 'dlp_document'
+                AND post_title = %s
+                ",
+                $importer->file_name
+                ),
+            ARRAY_A
+        );
+
+        if ( ! empty( $existing_document_post ) ) {
+            WP_CLI::confirm( "A document post already exists for file: {$file_path} as post ID {$existing_document_post[0]['ID']}. Continue anyways?", 'yes' );
+        }
+
 
         }
     }
