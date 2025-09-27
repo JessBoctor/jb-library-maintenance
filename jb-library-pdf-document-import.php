@@ -880,8 +880,17 @@ if ( class_exists( 'PDF_Media_Scrape_And_Import_Command' ) ) {
             WP_CLI::confirm( "A document post already exists for file: {$file_path} as post ID {$existing_document_post[0]['ID']}. Continue anyways?", 'yes' );
         }
 
+        // Handle for-real actions
+        if ( $for_real ) {
 
+            WP_CLI::log( "Importing {$file_path}" );
+            $result = $importer->import_file();
+            if ( is_wp_error( $result ) ) {
+                WP_CLI::error( "Failed to import file {$file_path}: " . $result->get_error_message() );
+            }
+            WP_CLI::log( "Successfully imported file: {$file_path} as post ID {$result}" );
         }
+
     }
 
     WP_CLI::add_command( 'import-single-pdf', 'import_single_pdf' );
