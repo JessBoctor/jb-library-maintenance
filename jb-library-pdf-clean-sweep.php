@@ -276,8 +276,8 @@ if ( ! class_exists( 'PDF_Media_Deletion_Commandq' ) ) {
                 "
                 UPDATE $wpdb->term_taxonomy tt
                 SET count = (SELECT count(p.ID)
-                FROM wp_term_relationships tr
-                LEFT JOIN wp_posts p ON p.ID = tr.object_id
+                FROM $wpdb->term_relationships tr
+                LEFT JOIN $wpdb->posts p ON p.ID = tr.object_id
                 WHERE tr.term_taxonomy_id = tt.term_taxonomy_id)
                 "
             );
