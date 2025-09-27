@@ -669,4 +669,23 @@ if ( class_exists( 'PDF_Media_Scrape_And_Import_Command' ) ) {
     }
 
     WP_CLI::add_command( 'log-single-pdf-media-detail', 'log_single_pdf_media_detail' );
+
+    /**
+     * Check the if all PDFs were uploaded to media attachements or documents
+     *
+     * Usage:
+     *  wp check-pdf-import-status
+     *
+     * @param array $assoc_args
+     * - Arguments include:
+     *  --subdirectories - Comma separated subdirectories path for the groups of PDFs to be processed
+     *  --post-type - Comma separated post types to check (default: dlp_document,attachment)
+     * @return void
+     */
+    function check_pdf_import_status( array $args, array $assoc_args = []): void {
+        WP_CLI::log( 'Starting PDF import check' );
+
+    }
+
+    WP_CLI::add_command( 'check-pdf-import-status', 'check_pdf_import_status' );
 }
