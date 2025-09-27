@@ -685,6 +685,36 @@ if ( class_exists( 'PDF_Media_Scrape_And_Import_Command' ) ) {
     function check_pdf_import_status( array $args, array $assoc_args = []): void {
         WP_CLI::log( 'Starting PDF import check' );
 
+        // Pull all of the posts of the specified types
+        // Default to checking both documents and attachments
+        // If a --post-type argument is provided, use that instead
+        if ( isset( $assoc_args['post-type'] ) && is_string( $assoc_args['post-type'] ) ) {
+            $post_types = array_map( 'trim', explode( ',', $assoc_args['post-type'] ) );
+        } else {
+            $post_types = array( 'dlp_document', 'attachment' );
+        }
+        WP_CLI::log( 'Checking post types: ' . implode( ', ', $post_types ) );
+
+        global $wpdb;
+        $posts = array();
+
+        foreach ( $post_types as $post_type ) {
+            $posts[ $post_type ] = $wpdb->get_results(
+                $wpdb->prepare(
+                    "SELECT ID, post_title, guid
+                    FROM $wpdb->posts
+                    WHERE post_type = %s
+                    AND ( post_title LIKE '%SDS%' OR post_title LIKE '%TDS%' )
+                    AND ( post_mime_type = 'application/pdf' OR post_mime_type = '' )
+                    ",
+                    $post_type
+                ),
+                ARRAY_A
+            );
+            WP_CLI::log( 'Found ' . count( $posts[ $post_type ] ) . " posts of type {$post_type}." );
+        }
+        // WP_CLI::log( print_r( $posts, true ) );
+        WP_CLI::log( 'Loaded existing posts from the database.' );
     }
 
     WP_CLI::add_command( 'check-pdf-import-status', 'check_pdf_import_status' );
