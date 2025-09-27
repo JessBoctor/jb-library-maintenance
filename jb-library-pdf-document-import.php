@@ -328,21 +328,15 @@ if ( ! class_exists( 'PDF_Media_Scrape_And_Import_Command' ) ) {
 
             // Write the processed files to a CSV file
             if (  ! empty( $this->processed_files_to_log ) ) {
-                // Create the logs directory if it doesn't exist
-                if ( ! is_dir( JB_LIBRARY_MAINTENANCE_PLUGIN_DIR . 'logs/' ) ) {
-                    WP_CLI::log( 'Creating logs directory...' );
-                    wp_mkdir_p( JB_LIBRARY_MAINTENANCE_PLUGIN_DIR . 'logs/' );
-                }
-                $csv_preffix = $this->for_real ? 'for-real-' : 'dry-run-';
-                $csv_file_path = fopen( JB_LIBRARY_MAINTENANCE_PLUGIN_DIR . 'logs/' . $csv_preffix . 'pdf-media-import-' . gmdate( "Ymd-His", time() ) . '.csv', 'x' );
-                if ( ! $csv_file_path ) {
+                $processed_csv_file_path = fopen( JB_LIBRARY_MAINTENANCE_PLUGIN_DIR . 'logs/' . $csv_preffix . 'pdf-media-import-' . gmdate( "Ymd-His", time() ) . '.csv', 'x' );
+                if ( ! $processed_csv_file_path ) {
                     WP_CLI::error( 'Failed to create CSV file for duplicate posts.' );
                     return;
                 }
 
                 // Write the header and data to the CSV file
                 WP_CLI\Utils\write_csv(
-                    $csv_file_path,
+                    $processed_csv_file_path,
                     $this->processed_files_to_log,
                     array(
                         'file_path',
@@ -356,27 +350,21 @@ if ( ! class_exists( 'PDF_Media_Scrape_And_Import_Command' ) ) {
                     ),
                 );
 
-                WP_CLI::log( "Duplicate posts written to CSV file: {$csv_file_path}" );
-                fclose( $csv_file_path );
+                WP_CLI::log( "Processed files written to CSV file: {$processed_csv_file_path}" );
+                fclose( $processed_csv_file_path );
             }
 
             // Write the skipped files to a CSV file
             if (  ! empty( $this->skipped_files_to_log ) ) {
-                // Create the logs directory if it doesn't exist
-                if ( ! is_dir( JB_LIBRARY_MAINTENANCE_PLUGIN_DIR . 'logs/' ) ) {
-                    WP_CLI::log( 'Creating logs directory...' );
-                    wp_mkdir_p( JB_LIBRARY_MAINTENANCE_PLUGIN_DIR . 'logs/' );
-                }
-                $csv_preffix = $this->for_real ? 'for-real-' : 'dry-run-';
-                $csv_file_path = fopen( JB_LIBRARY_MAINTENANCE_PLUGIN_DIR . 'logs/' . $csv_preffix . 'pdf-media-skipped' . gmdate( "Ymd-His", time() ) . '.csv', 'x' );
-                if ( ! $csv_file_path ) {
+                $skipped_csv_file_path = fopen( JB_LIBRARY_MAINTENANCE_PLUGIN_DIR . 'logs/' . $csv_preffix . 'pdf-media-skipped' . gmdate( "Ymd-His", time() ) . '.csv', 'x' );
+                if ( ! $skipped_csv_file_path ) {
                     WP_CLI::error( 'Failed to create CSV file for duplicate posts.' );
                     return;
                 }
 
                 // Write the header and data to the CSV file
                 WP_CLI\Utils\write_csv(
-                    $csv_file_path,
+                    $skipped_csv_file_path,
                     $this->skipped_files_to_log,
                     array(
                         'file_path',
@@ -384,8 +372,8 @@ if ( ! class_exists( 'PDF_Media_Scrape_And_Import_Command' ) ) {
                     ),
                 );
 
-                WP_CLI::log( "Duplicate posts written to CSV file: {$csv_file_path}" );
-                fclose( $csv_file_path );
+                WP_CLI::log( "Skipped files written to CSV file: {$skipped_csv_file_path}" );
+                fclose( $skipped_csv_file_path );
             }
         }
     }
