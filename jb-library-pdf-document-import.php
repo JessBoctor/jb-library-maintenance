@@ -223,6 +223,11 @@ if ( ! class_exists( 'PDF_Media_Scrape_And_Import_Command' ) ) {
                         WP_CLI::log( "Importing file ({$file_number} of {$this->number_of_pdfs}): {$file_path}" );
                         $result = $importer->import_file();
                         if ( is_wp_error( $result ) ) {
+                            $this->failed_imports_to_log[$importer->file_name] = array(
+                                'file_name' => $importer->file_name,
+                                'file_path' => $file_path,
+                                'error_message'   => $result->get_error_message(),
+                            );
                             WP_CLI::error( "Failed to import file {$file_path}: " . $result->get_error_message() );
                             continue;
                         }
