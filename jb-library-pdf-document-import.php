@@ -851,7 +851,7 @@ if ( class_exists( 'PDF_Media_Scrape_And_Import_Command' ) ) {
         }
 
         // Determine if we are running in dry run mode
-        $for_real = isset( $assoc_args['for-real'] );
+        $for_real = isset( $assoc_args['for-real'] ) ?? false;
         if ( $for_real ) {
             WP_CLI::log( 'Running in live mode, FOR REAL. Files will be imported.'  );
         } else {
@@ -891,6 +891,21 @@ if ( class_exists( 'PDF_Media_Scrape_And_Import_Command' ) ) {
             WP_CLI::log( "Successfully imported file: {$file_path} as post ID {$result}" );
         }
 
+        // Handle dry-run actions
+        if ( ! $for_real ) {
+            // Simulate the import
+            WP_CLI::log( "Dry run: Would import file: {$file_path}" );
+            WP_CLI::log( "Import Details:
+                File Name: {$importer->file_name}
+                File Type: {$importer->file_type}
+                Category ID: {$importer->category_id}
+                Tag Slug: {$importer->tag_slug}
+                Author ID: {$importer->author_id}
+                Is PDF Text Readable: " . ( $importer->scraper->is_pdf_readable ? 'Yes' : 'No' )
+            );
+        }
+
+        WP_CLI::success( "PDF media import completed." );
     }
 
     WP_CLI::add_command( 'import-single-pdf', 'import_single_pdf' );
