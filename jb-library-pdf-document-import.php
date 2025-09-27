@@ -378,6 +378,38 @@ if ( ! class_exists( 'PDF_Media_Scrape_And_Import_Command' ) ) {
                 WP_CLI::log( "Duplicate posts written to CSV file: {$csv_file_path}" );
                 fclose( $csv_file_path );
             }
+
+            // Log the number of failed imports during this import
+            WP_CLI::log( "Total failed imports during this import: " . count( $this->failed_imports_to_log ) );
+            $all_failed_imports = array_merge(
+                $this->failed_imports_to_log,
+                get_option( 'one-time-script-pdf-libraries-failed-imports', array() )
+            );
+            update_option( 'one-time-script-pdf-libraries-failed-imports', $all_failed_imports );
+            WP_CLI::log( "Total failed imports across all batches: " . count( $all_failed_imports ) );
+
+            // Write the failed files to a CSV file
+            if (  ! empty( $this->failed_imports_to_log ) ) {
+                $failed_csv_file_path = fopen( JB_LIBRARY_MAINTENANCE_PLUGIN_DIR . 'logs/' . $csv_preffix . 'pdf-media-failed-imports' . gmdate( "Ymd-His", time() ) . '.csv', 'x' );
+                if ( ! $failed_csv_file_path ) {
+                    WP_CLI::error( 'Failed to create CSV file for duplicate posts.' );
+                    return;
+                }
+
+                // Write the header and data to the CSV file
+                WP_CLI\Utils\write_csv(
+                    $failed_csv_file_path,
+                    $this->failed_imports_to_log,
+                    array(
+                        'file_name',
+                        'file_path',
+                        'error_message',
+                    ),
+                );
+
+                WP_CLI::log( "Failed file imports written to CSV file: {$failed_csv_file_path}" );
+                fclose( $failed_csv_file_path );
+            }
         }
     }
     WP_CLI::add_command( 'pdf-media-scrape-and-import', 'PDF_Media_Scrape_And_Import_Command' );
