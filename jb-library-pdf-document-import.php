@@ -685,6 +685,38 @@ if ( class_exists( 'PDF_Media_Scrape_And_Import_Command' ) ) {
     function check_pdf_import_status( array $args, array $assoc_args = []): void {
         WP_CLI::log( 'Starting PDF import check' );
 
+        // Get all of the PDFs from the specified directories
+        if ( isset( $assoc_args['subdirectories'] ) && is_string( $assoc_args['subdirectories'] ) ) {
+            $subdirectory_paths = array_map( 'trim', explode( ',', $assoc_args['subdirectories'] ) );
+        } else {
+            $subdirectory_paths = array( 'SDS', 'TDS' );
+        }
+
+        WP_CLI::log( 'Checking subdirectories: ' . implode( ', ', $subdirectory_paths ) );
+        $wp_uploads_dir = wp_get_upload_dir();
+        $all_pdf_files = array();
+        foreach ( $subdirectory_paths as $subdirectory_path ) {
+            $directory_path = $wp_uploads_dir['basedir'] . '/' . rtrim( $subdirectory_path, '/' ) . '/';
+            if ( is_dir( $directory_path ) ) {
+                WP_CLI::log( "Using directory path: {$directory_path}" );
+            } else {
+                WP_CLI::error( "The specified directory does not exist: {$directory_path}" );
+                return;
+            }
+
+            // Get all PDF files in the directory
+            $pdf_files = glob( $directory_path . '*.pdf' );
+            if ( ! empty( $pdf_files ) ) {
+                WP_CLI::log( 'Found ' . count( $pdf_files ) . " PDF files in {$directory_path}." );
+                $all_pdf_files = array_merge( $all_pdf_files, $pdf_files );
+            } else {
+                WP_CLI::log( "No PDF files found in the specified directory: {$directory_path}." );
+            }
+        }
+        $pdf_count = count( $all_pdf_files );
+        WP_CLI::log( "Total PDF files found: {$pdf_count}" );
+        WP_CLI::log( 'Loaded PDFs from directories.' );
+
         // Pull all of the posts of the specified types
         // Default to checking both documents and attachments
         // If a --post-type argument is provided, use that instead
