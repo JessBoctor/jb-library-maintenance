@@ -695,6 +695,7 @@ if ( class_exists( 'PDF_Media_Scrape_And_Import_Command' ) ) {
         WP_CLI::log( 'Checking subdirectories: ' . implode( ', ', $subdirectory_paths ) );
         $wp_uploads_dir = wp_get_upload_dir();
         $all_pdf_files = array();
+        $file_number = 0;
         foreach ( $subdirectory_paths as $subdirectory_path ) {
             $directory_path = $wp_uploads_dir['basedir'] . '/' . rtrim( $subdirectory_path, '/' ) . '/';
             if ( is_dir( $directory_path ) ) {
@@ -705,10 +706,18 @@ if ( class_exists( 'PDF_Media_Scrape_And_Import_Command' ) ) {
             }
 
             // Get all PDF files in the directory
-            $pdf_files = glob( $directory_path . '*.pdf' );
+            $pdf_files = array_filter( glob( $directory_path . '*.pdf' ), 'is_file' );
             if ( ! empty( $pdf_files ) ) {
                 WP_CLI::log( 'Found ' . count( $pdf_files ) . " PDF files in {$directory_path}." );
-                $all_pdf_files = array_merge( $all_pdf_files, $pdf_files );
+                foreach ( $pdf_files as $file_path) {
+                    $file_number++;
+                    $file_info = pathinfo( $file_path );
+                    $file_name = $file_info['filename'] . '.' . $file_info['extension'];
+                    $all_pdf_files[ $file_number ] = array(
+                        'file_path' => $file_path,
+                        'file_name' => $file_name,
+                    );
+                }
             } else {
                 WP_CLI::log( "No PDF files found in the specified directory: {$directory_path}." );
             }
@@ -754,9 +763,8 @@ if ( class_exists( 'PDF_Media_Scrape_And_Import_Command' ) ) {
                     WP_CLI::log( "Number of {$post_type} and files match, checking file names against post titles to be sure." );
                 }
 
-                WP_CLI::log( print_r( $posts[$post_type][0], true ) );
-
-                $pluck_key = $post_type === 'attachment' ? 'guid' : 'post_title';
+                $post_pluck_key = $post_type === 'attachment' ? 'guid' : 'post_title';
+                $file_pluck_key = $post_type === 'attachment' ? 'file_path' : 'file_name';
 
                 // Format the post names for comparison
                 $posts_by_name = wp_list_pluck( $posts[ $post_type ], $pluck_key );
