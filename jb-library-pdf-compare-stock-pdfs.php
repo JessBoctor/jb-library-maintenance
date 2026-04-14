@@ -33,14 +33,22 @@ if ( ! class_exists( 'JB_Compare_Stock_PDFs_Command' ) ) {
          * [--column=<name>]
          * : CSV header column name containing stock IDs. Defaults to "Row Labels".
          *
+         * [--description-column=<name>]
+         * : CSV header column name containing product descriptions. Defaults to none.
+         *
+         * [--match-parent-stock-id]
+         * : After exact child-ID matching, fall back to a unique parent prefix match against PDF filenames.
+         *   The parent is the common prefix shared by child variants (e.g. 123456 from 123456-aa).
+         *
          * [--export-csv]
          * : Export results to CSV files in the plugin directory.
          *
          * ## EXAMPLES
          *
          *     wp compare-stock-pdfs
+         *     wp compare-stock-pdfs --match-parent-stock-id
          *     wp compare-stock-pdfs --csv-path=wp-content/plugins/jb-library-maintenance/2025ProductData.csv --sds-dir=wp-content/uploads/SDS --tds-dir=wp-content/uploads/TDS
-         *     wp compare-stock-pdfs --export-csv
+         *     wp compare-stock-pdfs --match-parent-stock-id --export-csv
          *
          * @param array $args
          * @param array $assoc_args
@@ -53,8 +61,10 @@ if ( ! class_exists( 'JB_Compare_Stock_PDFs_Command' ) ) {
 
             $csv_path = $assoc_args['csv-path'] ?? JB_LIBRARY_MAINTENANCE_PLUGIN_DIR . '2025ProductData.csv';
             $column_name = $assoc_args['column'] ?? 'Row Labels';
+            $description_column = $assoc_args['description-column'] ?? '';
             $sds_dir = $assoc_args['sds-dir'] ?? trailingslashit( wp_get_upload_dir()['basedir'] ) . 'SDS';
             $tds_dir = $assoc_args['tds-dir'] ?? trailingslashit( wp_get_upload_dir()['basedir'] ) . 'TDS';
+            $match_parent_stock_id = isset( $assoc_args['match-parent-stock-id'] );
             $export_csv = $assoc_args['export-csv'] ?? false;
 
             // Only resolve relative paths
@@ -74,7 +84,8 @@ if ( ! class_exists( 'JB_Compare_Stock_PDFs_Command' ) ) {
                 $tds_dir = $this->resolve_path( $tds_dir );
             }
 
-            $csv_stock_ids = $this->read_csv_stock_ids( $csv_path, $column_name );
+            $csv_stock_data = $this->read_csv_stock_ids( $csv_path, $column_name, $description_column );
+            $csv_stock_ids = array_keys( $csv_stock_data );
             $sds_stock_ids = $this->scan_pdf_stock_ids( $sds_dir );
             $tds_stock_ids = $this->scan_pdf_stock_ids( $tds_dir );
 
@@ -82,14 +93,18 @@ if ( ! class_exists( 'JB_Compare_Stock_PDFs_Command' ) ) {
             sort( $csv_stock_ids, SORT_NATURAL | SORT_FLAG_CASE );
             sort( $all_pdf_stock_ids, SORT_NATURAL | SORT_FLAG_CASE );
 
-            $missing_pdfs = array_values( array_diff( $csv_stock_ids, $all_pdf_stock_ids ) );
+            $missing_stock_ids = array_values( array_diff( $csv_stock_ids, $all_pdf_stock_ids ) );
             $orphan_pdfs = array_values( array_diff( $all_pdf_stock_ids, $csv_stock_ids ) );
 
-            // Perform fuzzy matching by stripping characters from missing stock IDs
-            $fuzzy_matches = $this->find_fuzzy_matches( $missing_pdfs, $all_pdf_stock_ids );
+            // Perform matching for missing stock IDs.
+            if ( $match_parent_stock_id ) {
+                $fuzzy_matches = $this->find_parent_stock_id_matches( $missing_stock_ids, $all_pdf_stock_ids );
+            } else {
+                $fuzzy_matches = $this->find_fuzzy_matches( $missing_stock_ids, $all_pdf_stock_ids );
+            }
 
-            // Calculate match statistics
-            $exact_matched_stock_ids = array_diff( $csv_stock_ids, $missing_pdfs );
+            // Calculate stock ID match statistics
+            $exact_matched_stock_ids = array_values( array_diff( $csv_stock_ids, $missing_stock_ids ) );
             $fuzzy_matched_stock_ids = array_keys( $fuzzy_matches );
             $total_matched_stock_ids = array_unique( array_merge( $exact_matched_stock_ids, $fuzzy_matched_stock_ids ) );
 
@@ -124,33 +139,44 @@ if ( ! class_exists( 'JB_Compare_Stock_PDFs_Command' ) ) {
                 }
             }
 
-            $total_non_matches = count( $missing_pdfs ) + count( $orphan_pdfs );
+            $total_non_matches = count( $missing_stock_ids ) + count( $orphan_pdfs );
 
             WP_CLI::line( "CSV stock IDs: " . count( $csv_stock_ids ) );
-            WP_CLI::line( "Total PDF files (SDS + TDS): " . $total_pdf_files );
             WP_CLI::line( "" );
-            WP_CLI::line( "FILE MATCH SUMMARY:" );
-            WP_CLI::line( "  PDF files with matching stock IDs: " . $matched_file_count );
-            WP_CLI::line( "  PDF files without matching stock IDs: " . $unmatched_file_count );
-            WP_CLI::line( "  Total PDF files: " . $total_pdf_files );
-            WP_CLI::line( "" );
-            WP_CLI::line( "STOCK ID SUMMARY:" );
+            WP_CLI::line( "STOCK ID MATCH SUMMARY:" );
             WP_CLI::line( "  Exact matched stock IDs: " . count( $exact_matched_stock_ids ) );
             if ( ! empty( $fuzzy_matches ) ) {
-                WP_CLI::line( "  Fuzzy matched stock IDs: " . count( $fuzzy_matched_stock_ids ) );
+                WP_CLI::line( "  Parent/fuzzy matched stock IDs: " . count( $fuzzy_matched_stock_ids ) );
             }
             WP_CLI::line( "  Total matched stock IDs: " . count( $total_matched_stock_ids ) );
+            WP_CLI::line( "  Stock IDs without PDFs: " . count( $missing_stock_ids ) );
+            WP_CLI::line( "" );
+            WP_CLI::line( "CATEGORY SUMMARY:" );
+            $category_summary = $this->build_category_parent_summary( $csv_stock_ids );
+            foreach ( $category_summary as $category => $data ) {
+                WP_CLI::line( "  Category {$category}: {$data['count']} IDs" );
+                foreach ( $data['parents'] as $parent_id => $child_count ) {
+                    WP_CLI::line( "    - Parent ID {$parent_id}: {$child_count} children" );
+                }
+            }
+            WP_CLI::line( "" );
+            WP_CLI::line( "PDF MATCH SUMMARY:" );
+            WP_CLI::line( "  Total PDF files (SDS + TDS): " . $total_pdf_files );
+            WP_CLI::line( "  PDF files with matching stock IDs: " . $matched_file_count );
+            WP_CLI::line( "  PDF files without matching stock IDs: " . $unmatched_file_count );
             WP_CLI::line( "" );
             WP_CLI::line( "NON-MATCHES:" );
-            WP_CLI::line( "  Missing PDFs for CSV stock IDs: " . count( $missing_pdfs ) );
-            WP_CLI::line( "  PDF stock IDs not found in CSV: " . count( $orphan_pdfs ) );
-            WP_CLI::line( "  Total unmatched items: " . $total_non_matches );
+            WP_CLI::line( "  Stock IDs with no matching PDF: " . count( $missing_stock_ids ) );
+            WP_CLI::line( "  PDF stock IDs not present in CSV: " . count( $orphan_pdfs ) );
+            WP_CLI::line( "  Total unmatched items: " . ( count( $missing_stock_ids ) + count( $orphan_pdfs ) ) );
             WP_CLI::line( str_repeat( '-', 60 ) );
 
-            if ( ! empty( $missing_pdfs ) ) {
+            if ( ! empty( $missing_stock_ids ) ) {
                 WP_CLI::line( "Stock IDs in CSV with no matching PDF:" );
-                foreach ( $missing_pdfs as $stock_id ) {
-                    WP_CLI::line( "  - {$stock_id}" );
+                foreach ( $missing_stock_ids as $stock_id ) {
+                    $description = isset( $csv_stock_data[ $stock_id ] ) ? $csv_stock_data[ $stock_id ] : '';
+                    $description_text = $description ? " - {$description}" : '';
+                    WP_CLI::line( "  - {$stock_id}{$description_text}" );
                 }
                 WP_CLI::line( str_repeat( '-', 60 ) );
             }
@@ -179,28 +205,50 @@ if ( ! class_exists( 'JB_Compare_Stock_PDFs_Command' ) ) {
             }
 
             // Final summary
+            $total_stock_ids = count( $csv_stock_ids );
+            $matched_stock_id_count = count( $total_matched_stock_ids );
+            $missing_stock_id_count = count( $missing_stock_ids );
+            $matched_percent = $total_stock_ids > 0 ? round( $matched_stock_id_count / $total_stock_ids * 100, 1 ) : 0;
+            $missing_percent = $total_stock_ids > 0 ? round( $missing_stock_id_count / $total_stock_ids * 100, 1 ) : 0;
+
             WP_CLI::line( "FINAL SUMMARY:" );
-            WP_CLI::line( "  Total PDF files: {$total_pdf_files}" );
-            WP_CLI::line( "  Files with matching stock IDs: {$matched_file_count} (" . round( $matched_file_count / $total_pdf_files * 100, 1 ) . "%)" );
-            WP_CLI::line( "  Files without matching stock IDs: {$unmatched_file_count} (" . round( $unmatched_file_count / $total_pdf_files * 100, 1 ) . "%)" );
+            WP_CLI::line( "  Total Stock IDs: {$total_stock_ids}" );
+            WP_CLI::line( "  Stock IDs with matching PDFs: {$matched_stock_id_count} ({$matched_percent}%)" );
+            WP_CLI::line( "  Stock IDs without matching PDFs: {$missing_stock_id_count} ({$missing_percent}%)" );
+            WP_CLI::line( "" );
+            WP_CLI::line( "FINAL CATEGORY SUMMARY:" );
+            WP_CLI::line( "  Total categories: " . count( $category_summary ) );
+            $total_parent_groups = 0;
+            foreach ( $category_summary as $category_data ) {
+                $total_parent_groups += count( $category_data['parents'] );
+            }
+            WP_CLI::line( "  Total parent groups: {$total_parent_groups}" );
+            foreach ( $category_summary as $category => $data ) {
+                WP_CLI::line( "  Category {$category}: {$data['count']} IDs, " . count( $data['parents'] ) . " parent groups" );
+                foreach ( $data['parents'] as $parent_id => $child_count ) {
+                    WP_CLI::line( "    - Parent ID {$parent_id}: {$child_count} children" );
+                }
+            }
             WP_CLI::line( str_repeat( '-', 60 ) );
 
             if ( $export_csv ) {
-                $this->export_results_to_csv( $missing_pdfs, $orphan_pdfs, $sds_stock_ids, $tds_stock_ids, $fuzzy_matches );
+                $this->export_results_to_csv( $missing_stock_ids, $orphan_pdfs, $sds_stock_ids, $tds_stock_ids, $fuzzy_matches, $csv_stock_data );
             }
 
             WP_CLI::success( 'Stock comparison complete.' );
         }
 
         private function resolve_path( string $path ): string {
-            $path = trim( $path );
+            $path = trim( str_replace( '\\', '/', $path ) );
             if ( $path === '' ) {
                 return $path;
             }
-            if ( preg_match( '#^(?:[A-Za-z]:\\|/)#', $path ) ) {
+
+            if ( strpos( $path, ABSPATH ) === 0 || strpos( $path, '/' ) === 0 || preg_match( '/^[A-Za-z]:\//', $path ) ) {
                 return wp_normalize_path( $path );
             }
-            return wp_normalize_path( ABSPATH . ltrim( str_replace( '\\', '/', $path ), '/' ) );
+
+            return wp_normalize_path( ABSPATH . ltrim( $path, '/' ) );
         }
 
         private function normalize_stock_id( string $value ): string {
@@ -214,7 +262,7 @@ if ( ! class_exists( 'JB_Compare_Stock_PDFs_Command' ) ) {
             return is_plugin_active( self::PLUGIN_BASENAME );
         }
 
-        private function read_csv_stock_ids( string $csv_path, string $column_name ): array {
+        private function read_csv_stock_ids( string $csv_path, string $column_name, string $description_column = '' ): array {
             if ( ! is_readable( $csv_path ) ) {
                 WP_CLI::error( "CSV file not readable: {$csv_path}" );
             }
@@ -236,6 +284,15 @@ if ( ! class_exists( 'JB_Compare_Stock_PDFs_Command' ) ) {
                 WP_CLI::error( "Column '{$column_name}' not found in CSV header. Available columns: " . implode( ', ', $header ) );
             }
 
+            $description_index = null;
+            if ( $description_column !== '' ) {
+                $description_index = array_search( $description_column, $header, true );
+                if ( $description_index === false ) {
+                    fclose( $handle );
+                    WP_CLI::error( "Description column '{$description_column}' not found in CSV header. Available columns: " . implode( ', ', $header ) );
+                }
+            }
+
             $stock_ids = array();
             while ( ( $row = fgetcsv( $handle, 0, ',', '"', '\\' ) ) !== false ) {
                 if ( ! isset( $row[ $column_index ] ) ) {
@@ -245,10 +302,16 @@ if ( ! class_exists( 'JB_Compare_Stock_PDFs_Command' ) ) {
                 if ( $stock_id === '' ) {
                     continue;
                 }
-                $stock_ids[ $stock_id ] = true;
+
+                $description = '';
+                if ( $description_index !== null && isset( $row[ $description_index ] ) ) {
+                    $description = trim( $row[ $description_index ] );
+                }
+
+                $stock_ids[ $stock_id ] = $description;
             }
             fclose( $handle );
-            return array_keys( $stock_ids );
+            return $stock_ids;
         }
 
         private function extract_stock_id_from_pdf( string $file_name ): string {
@@ -319,7 +382,120 @@ if ( ! class_exists( 'JB_Compare_Stock_PDFs_Command' ) ) {
             return $fuzzy_matches;
         }
 
-        private function export_results_to_csv( array $missing_pdfs, array $orphan_pdfs, array $sds_stock_ids, array $tds_stock_ids, array $fuzzy_matches = array() ): void {
+        private function find_parent_stock_id_matches( array $missing_stock_ids, array $pdf_stock_ids ): array {
+            $matches = array();
+
+            foreach ( $missing_stock_ids as $stock_id ) {
+                $candidates = array();
+                foreach ( $pdf_stock_ids as $pdf_id ) {
+                    if ( $pdf_id === $stock_id ) {
+                        continue;
+                    }
+                    if ( strpos( $stock_id, $pdf_id ) === 0 ) {
+                        $candidates[] = $pdf_id;
+                    }
+                }
+
+                if ( count( $candidates ) === 1 ) {
+                    $matches[ $stock_id ] = array(
+                        'original' => $stock_id,
+                        'matched' => $candidates[0],
+                        'method' => 'parent_prefix'
+                    );
+                }
+            }
+
+            return $matches;
+        }
+
+        private function get_category_prefix( string $stock_id ): string {
+            return substr( $stock_id, 0, 2 );
+        }
+
+        private function get_longest_common_prefix( array $strings ): string {
+            if ( empty( $strings ) ) {
+                return '';
+            }
+            if ( count( $strings ) === 1 ) {
+                return $strings[0];
+            }
+
+            $prefix = $strings[0];
+            for ( $i = 1; $i < count( $strings ); $i++ ) {
+                $prefix = $this->get_common_prefix( $prefix, $strings[$i] );
+                if ( $prefix === '' ) {
+                    break;
+                }
+            }
+            return $prefix;
+        }
+
+        private function get_common_prefix( string $a, string $b ): string {
+            $min_len = min( strlen( $a ), strlen( $b ) );
+            for ( $i = 0; $i < $min_len; $i++ ) {
+                if ( $a[$i] !== $b[$i] ) {
+                    return substr( $a, 0, $i );
+                }
+            }
+            return substr( $a, 0, $min_len );
+        }
+
+        private function get_parent_id( string $stock_id ): string {
+            if ( strlen( $stock_id ) <= 2 ) {
+                return $stock_id;
+            }
+
+            $category = $this->get_category_prefix( $stock_id );
+            $rest = substr( $stock_id, 2 );
+            $rest = preg_replace( '/[^A-Z0-9_\-]/', '', $rest );
+
+            if ( preg_match( '/^([^_\-]+)/', $rest, $matches ) ) {
+                $core = $matches[1];
+            } else {
+                $core = $rest;
+            }
+
+            if ( preg_match( '/^(\d+)[A-Z].*$/', $core, $matches ) ) {
+                $core = $matches[1];
+            }
+
+            return $category . $core;
+        }
+
+        private function build_category_parent_summary( array $stock_ids ): array {
+            $summary = array();
+
+            foreach ( $stock_ids as $stock_id ) {
+                $category = $this->get_category_prefix( $stock_id );
+                $parent_id = $this->get_parent_id( $stock_id );
+
+                if ( ! isset( $summary[ $category ] ) ) {
+                    $summary[ $category ] = array(
+                        'count' => 0,
+                        'parents' => array(),
+                    );
+                }
+
+                $summary[ $category ]['count']++;
+                if ( ! isset( $summary[ $category ]['parents'][ $parent_id ] ) ) {
+                    $summary[ $category ]['parents'][ $parent_id ] = 0;
+                }
+                $summary[ $category ]['parents'][ $parent_id ]++;
+            }
+
+            uasort( $summary, function ( $a, $b ) {
+                return $b['count'] <=> $a['count'];
+            } );
+
+            foreach ( $summary as $category => &$category_data ) {
+                arsort( $category_data['parents'] );
+            }
+            unset( $category_data );
+
+            return $summary;
+        }
+
+        private function export_results_to_csv( array $missing_pdfs, array $orphan_pdfs, array $sds_stock_ids, array $tds_stock_ids, array $fuzzy_matches = array(), array $csv_stock_data = array() ): void {
             $logs_dir = JB_LIBRARY_MAINTENANCE_PLUGIN_DIR . 'logs' . DIRECTORY_SEPARATOR;
             
             // Ensure logs directory exists
@@ -334,9 +510,17 @@ if ( ! class_exists( 'JB_Compare_Stock_PDFs_Command' ) ) {
                 $missing_csv_path = $logs_dir . "missing-pdfs-{$timestamp}.csv";
                 $missing_handle = fopen( $missing_csv_path, 'w' );
                 if ( $missing_handle !== false ) {
-                    fputcsv( $missing_handle, array( 'Stock ID' ), ',', '"', '\\' );
+                    $headers = array( 'Stock ID' );
+                    if ( ! empty( $csv_stock_data ) ) {
+                        $headers[] = 'Description';
+                    }
+                    fputcsv( $missing_handle, $headers, ',', '"', '\\' );
                     foreach ( $missing_pdfs as $stock_id ) {
-                        fputcsv( $missing_handle, array( $stock_id ), ',', '"', '\\' );
+                        $row = array( $stock_id );
+                        if ( ! empty( $csv_stock_data ) ) {
+                            $row[] = isset( $csv_stock_data[ $stock_id ] ) ? $csv_stock_data[ $stock_id ] : '';
+                        }
+                        fputcsv( $missing_handle, $row, ',', '"', '\\' );
                     }
                     fclose( $missing_handle );
                     WP_CLI::line( "Exported missing PDFs to: {$missing_csv_path}" );
@@ -448,5 +632,317 @@ if ( ! class_exists( 'JB_Compare_Stock_PDFs_Command' ) ) {
         }
     }
 
+    class JB_Group_Stock_Variations_Command {
+
+        /**
+         * Find similar stock IDs and group them as variations.
+         *
+         * Groups stock IDs by category (first two characters), then removes the category prefix
+         * and groups the remaining parts by similarity to find parent-child variations.
+         *
+         * ## OPTIONS
+         *
+         * [--csv-path=<path>]
+         * : Path to the CSV file. Defaults to the plugin CSV file.
+         *
+         * [--column=<name>]
+         * : CSV header column name containing stock IDs. Defaults to "Row Labels".
+         *
+         * [--threshold=<value>]
+         * : Similarity threshold between 0.0 and 1.0. Defaults to 0.86.
+         *
+         * [--output=<path>]
+         * : Path to export grouped variations CSV. Defaults to stock-variation-groups.csv.
+         *
+         * ## EXAMPLES
+         *
+         *     wp group-stock-variations
+         *     wp group-stock-variations --csv-path=wp-content/plugins/jb-library-maintenance/2025ProductData.csv --threshold=0.88 --output=variation-groups.csv
+         *
+         * @param array $args
+         * @param array $assoc_args
+         * @return void
+         */
+        public function __invoke( $args, $assoc_args ) {
+            if ( ! function_exists( 'wp_normalize_path' ) ) {
+                require_once ABSPATH . 'wp-includes/functions.php';
+            }
+
+            $csv_path = $assoc_args['csv-path'] ?? JB_LIBRARY_MAINTENANCE_PLUGIN_DIR . '2025ProductData.csv';
+            $column_name = $assoc_args['column'] ?? 'Row Labels';
+            $threshold = isset( $assoc_args['threshold'] ) ? floatval( $assoc_args['threshold'] ) : 0.86;
+            $output_path = $assoc_args['output'] ?? 'stock-variation-groups.csv';
+
+            if ( $threshold < 0 || $threshold > 1 ) {
+                WP_CLI::error( 'Threshold must be between 0.0 and 1.0.' );
+            }
+
+            $csv_path = $this->resolve_path( $csv_path );
+            $stock_ids = $this->read_csv_stock_ids( $csv_path, $column_name );
+
+            if ( empty( $stock_ids ) ) {
+                WP_CLI::warning( 'No stock IDs found in CSV.' );
+                return;
+            }
+
+            $groups = $this->build_groups( $stock_ids, $threshold );
+            $this->display_summary( $stock_ids, $groups, $threshold );
+            $this->export_groups_to_csv( $groups, $output_path );
+
+            WP_CLI::success( 'Stock variation grouping complete.' );
+        }
+
+        private function read_csv_stock_ids( string $csv_path, string $column_name ): array {
+            if ( ! is_readable( $csv_path ) ) {
+                WP_CLI::error( "CSV file not readable: {$csv_path}" );
+            }
+
+            $handle = fopen( $csv_path, 'rb' );
+            if ( $handle === false ) {
+                WP_CLI::error( "Unable to open CSV file: {$csv_path}" );
+            }
+
+            $header = fgetcsv( $handle, 0, ',', '"', '\\' );
+            if ( $header === false ) {
+                fclose( $handle );
+                WP_CLI::error( "CSV file is empty or invalid: {$csv_path}" );
+            }
+
+            $column_index = array_search( $column_name, $header, true );
+            if ( $column_index === false ) {
+                fclose( $handle );
+                WP_CLI::error( "Column '{$column_name}' not found in CSV header. Available columns: " . implode( ', ', $header ) );
+            }
+
+            $stock_ids = array();
+            while ( ( $row = fgetcsv( $handle, 0, ',', '"', '\\' ) ) !== false ) {
+                if ( ! isset( $row[ $column_index ] ) ) {
+                    continue;
+                }
+                $stock_id = $this->normalize_stock_id( $row[ $column_index ] );
+                if ( $stock_id === '' ) {
+                    continue;
+                }
+                $stock_ids[ $stock_id ] = true;
+            }
+            fclose( $handle );
+
+            $stock_ids = array_keys( $stock_ids );
+            sort( $stock_ids, SORT_NATURAL | SORT_FLAG_CASE );
+            return $stock_ids;
+        }
+
+        private function normalize_stock_id( string $value ): string {
+            $value = strtoupper( trim( preg_replace( '/["\'\s]+/', '', $value ) ) );
+            $value = preg_replace( '/[^A-Z0-9\-]+/', '-', $value );
+            $value = preg_replace( '/-+/', '-', $value );
+            return trim( $value, '-' );
+        }
+
+        private function resolve_path( string $path ): string {
+            $path = trim( str_replace( '\\', '/', $path ) );
+            if ( $path === '' ) {
+                return $path;
+            }
+
+            if ( strpos( $path, ABSPATH ) === 0 || strpos( $path, '/' ) === 0 || preg_match( '/^[A-Za-z]:\//', $path ) ) {
+                return wp_normalize_path( $path );
+            }
+
+            return wp_normalize_path( ABSPATH . ltrim( $path, '/' ) );
+        }
+
+        private function clean_stock_id( string $stock_id ): string {
+            return preg_replace( '/[^A-Z0-9]+/', '', $stock_id );
+        }
+
+        private function similarity_score( string $a, string $b ): float {
+            if ( $a === $b ) {
+                return 1.0;
+            }
+
+            $a_clean = $this->clean_stock_id( $a );
+            $b_clean = $this->clean_stock_id( $b );
+            if ( $a_clean === '' || $b_clean === '' ) {
+                return 0.0;
+            }
+
+            if ( $a_clean === $b_clean ) {
+                return 0.98;
+            }
+
+            if ( strpos( $a_clean, $b_clean ) === 0 || strpos( $b_clean, $a_clean ) === 0 ) {
+                return 0.92;
+            }
+
+            $common_prefix = 0;
+            $max_prefix = min( strlen( $a_clean ), strlen( $b_clean ) );
+            for ( $i = 0; $i < $max_prefix; $i++ ) {
+                if ( $a_clean[ $i ] !== $b_clean[ $i ] ) {
+                    break;
+                }
+                $common_prefix++;
+            }
+            if ( $max_prefix > 0 && ( $common_prefix / $max_prefix ) >= 0.75 && abs( strlen( $a_clean ) - strlen( $b_clean ) ) <= 4 ) {
+                return 0.90;
+            }
+
+            similar_text( $a, $b, $percent );
+            return $percent / 100;
+        }
+
+        private function build_groups( array $stock_ids, float $threshold ): array {
+            // First, group by category (first two characters)
+            $category_groups = array();
+            foreach ( $stock_ids as $stock_id ) {
+                $category = substr( $stock_id, 0, 2 );
+                if ( ! isset( $category_groups[ $category ] ) ) {
+                    $category_groups[ $category ] = array();
+                }
+                $category_groups[ $category ][] = $stock_id;
+            }
+
+            $all_groups = array();
+            foreach ( $category_groups as $category => $ids_in_category ) {
+                if ( count( $ids_in_category ) < 2 ) {
+                    continue; // Skip categories with only one ID
+                }
+
+                // Remove category prefix for similarity matching
+                $stripped_ids = array();
+                foreach ( $ids_in_category as $id ) {
+                    $stripped = substr( $id, 2 );
+                    if ( $stripped !== '' ) {
+                        $stripped_ids[ $id ] = $stripped;
+                    }
+                }
+
+                if ( empty( $stripped_ids ) ) {
+                    continue;
+                }
+
+                // Group by similarity on stripped IDs
+                $stripped_list = array_values( $stripped_ids );
+                $sub_groups = $this->group_by_similarity( $stripped_list, $threshold );
+
+                // Map back to original IDs and add category prefix to group names
+                foreach ( $sub_groups as $sub_group ) {
+                    $original_group = array();
+                    foreach ( $sub_group as $stripped_id ) {
+                        $original_id = array_search( $stripped_id, $stripped_ids );
+                        if ( $original_id !== false ) {
+                            $original_group[] = $original_id;
+                        }
+                    }
+                    if ( count( $original_group ) > 1 ) {
+                        $all_groups[] = $original_group;
+                    }
+                }
+            }
+
+            // Sort groups by size and then alphabetically
+            usort( $all_groups, function( $a, $b ) {
+                if ( count( $a ) === count( $b ) ) {
+                    return strcasecmp( $a[0], $b[0] );
+                }
+                return count( $b ) - count( $a );
+            } );
+
+            return $all_groups;
+        }
+
+        private function group_by_similarity( array $ids, float $threshold ): array {
+            $count = count( $ids );
+            $parent = range( 0, $count - 1 );
+
+            $find = function( $index ) use ( &$parent, &$find ) {
+                while ( $parent[ $index ] !== $index ) {
+                    $parent[ $index ] = $parent[ $parent[ $index ] ];
+                    $index = $parent[ $index ];
+                }
+                return $index;
+            };
+
+            $union = function( $first, $second ) use ( &$parent, $find ) {
+                $root_first = $find( $first );
+                $root_second = $find( $second );
+                if ( $root_first !== $root_second ) {
+                    $parent[ $root_second ] = $root_first;
+                }
+            };
+
+            for ( $i = 0; $i < $count; $i++ ) {
+                for ( $j = $i + 1; $j < $count; $j++ ) {
+                    if ( $this->similarity_score( $ids[ $i ], $ids[ $j ] ) >= $threshold ) {
+                        $union( $i, $j );
+                    }
+                }
+            }
+
+            $groups = array();
+            for ( $i = 0; $i < $count; $i++ ) {
+                $root = $find( $i );
+                if ( ! isset( $groups[ $root ] ) ) {
+                    $groups[ $root ] = array();
+                }
+                $groups[ $root ][] = $ids[ $i ];
+            }
+
+            $result = array();
+            foreach ( $groups as $group ) {
+                if ( count( $group ) > 1 ) {
+                    sort( $group, SORT_NATURAL | SORT_FLAG_CASE );
+                    $result[] = $group;
+                }
+            }
+            return $result;
+        }
+
+        private function display_summary( array $stock_ids, array $groups, float $threshold ): void {
+            $total = count( $stock_ids );
+            $grouped = 0;
+            foreach ( $groups as $group ) {
+                $grouped += count( $group );
+            }
+
+            WP_CLI::line( "CSV stock IDs: {$total}" );
+            WP_CLI::line( "Similarity threshold: {$threshold}" );
+            WP_CLI::line( "Groups found: " . count( $groups ) );
+            WP_CLI::line( "Stock IDs in groups: {$grouped}" );
+            WP_CLI::line( "Stock IDs not grouped: " . ( $total - $grouped ) );
+            WP_CLI::line( str_repeat( '-', 60 ) );
+
+            foreach ( $groups as $index => $group ) {
+                WP_CLI::line( sprintf( 'Group %d (%d IDs): %s', $index + 1, count( $group ), implode( ', ', $group ) ) );
+                if ( $index >= 19 ) {
+                    WP_CLI::line( '...showing top 20 groups' );
+                    break;
+                }
+            }
+        }
+
+        private function export_groups_to_csv( array $groups, string $output_path ): void {
+            $output_path = $this->resolve_path( $output_path );
+            $directory = dirname( $output_path );
+            if ( ! is_dir( $directory ) ) {
+                wp_mkdir_p( $directory );
+            }
+
+            $handle = fopen( $output_path, 'w' );
+            if ( $handle === false ) {
+                WP_CLI::warning( "Unable to write groups CSV to: {$output_path}" );
+                return;
+            }
+
+            fputcsv( $handle, array( 'Group ID', 'Stock IDs' ) );
+            foreach ( $groups as $index => $group ) {
+                fputcsv( $handle, array( $index + 1, implode( '; ', $group ) ) );
+            }
+            fclose( $handle );
+            WP_CLI::line( "Exported group results to: {$output_path}" );
+        }
+    }
+
     WP_CLI::add_command( 'compare-stock-pdfs', 'JB_Compare_Stock_PDFs_Command' );
+    WP_CLI::add_command( 'group-stock-variations', 'JB_Group_Stock_Variations_Command' );
 }
