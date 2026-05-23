@@ -186,16 +186,33 @@ if ( ! class_exists( 'PDF_Media_Scrape_And_Import_Command' ) ) {
                 $this->number_of_pdfs = count( $pdf_files );
                 WP_CLI::log( "Found {$this->number_of_pdfs} PDF files in {$this->directory_path}." );
 
+                // Track whether we stopped early due to hitting the batch size
+                $stopped_due_to_batch = false;
+
                 foreach ( $pdf_files as $file_number => $file_path ) {
 
                      // Check if we've reached the batch size limit
                     if ( $this->total_processed_files === $this->batch_size ) {
                         WP_CLI::log( "Reached batch size limit of {$this->batch_size}. Stopping import." );
+                        $stopped_due_to_batch = true;
                         break;
                     }
 
                     // Set up the file Importer
                     $importer = new JB_Library_File_Importer( $file_path );
+
+                    // Universal skip: if this file path was already recorded as processed,
+                    // skip it for both dry-run and for-real runs so batches resume correctly.
+                    if ( in_array( $file_path, $this->previously_imported_files, true ) ) {
+                        WP_CLI::log( "Skipping already imported file (recorded): {$file_path}" );
+                        // Record the skipped file info for logging later
+                        $this->skipped_files_to_log[$importer->file_name] = array(
+                            'file_path' => $file_path,
+                            'existing_post_id' => $this->for_real ? ( $existing_document_posts_by_name[ $importer->file_name ] ?? '--recorded--' ) : '--dry-run--',
+                        );
+                        WP_CLI::log( "Skipped files so far: " . count( $this->skipped_files_to_log ) );
+                        continue;
+                    }
 
                     // Handle for-real actions
                     if ( $this->for_real ) {
@@ -282,11 +299,21 @@ if ( ! class_exists( 'PDF_Media_Scrape_And_Import_Command' ) ) {
                     // Record the file as processed
                     $this->previously_imported_files[] = $file_path;
                     $this->total_processed_files++;
+
+                    // Persist progress immediately so a subsequent batch can resume
+                    update_option( 'one-time-script-pdf-libraries-imported-file-names', $this->previously_imported_files );
+                    update_option( 'one-time-script-pdf-libraries-last-processed', $file_path );
                 }
 
                 // Log the results
                 $this->log_results();
-                WP_CLI::success( "PDF media import completed." );
+
+                // Clear, explicit final message so it's clear whether the run finished or stopped early
+                if ( ! empty( $stopped_due_to_batch ) ) {
+                    WP_CLI::log( "Import stopped after reaching batch size limit of {$this->batch_size}. Run again to continue processing remaining files." );
+                } else {
+                    WP_CLI::success( "PDF media import completed." );
+                }
 
             }
         }
@@ -575,6 +602,221 @@ if ( class_exists( 'PDF_Media_Scrape_And_Import_Command' ) ) {
         }
     }
     WP_CLI::add_command( 'check-pdf-media-detail-for-sds', 'check_pdf_media_sds_content' );
+
+    /**
+     * Check how many SDS PDFs contain transport information.
+     *
+     * Usage:
+     *  wp check-pdf-media-transport-for-sds
+     *
+     * @param array $args
+     * @param array $assoc_args
+     * - Arguments include:
+     *  --subdirectory-path - Subdirectory path for the group of PDFs to be processed
+     *  --batch-size - Number of PDF files to process in each batch (default: 100)
+     *  --search-term - Term to search for in SDS files (default: transport)
+     * @return void
+     */
+    function check_pdf_media_transport_for_sds( array $args, array $assoc_args = []): void {
+
+        // Set the batch size
+        if ( isset( $assoc_args['batch-size'] ) && is_numeric( $assoc_args['batch-size'] ) ) {
+            $batch_size = intval( $assoc_args['batch-size'] );
+        } else {
+            $batch_size = 100;
+        }
+        WP_CLI::confirm( "Batch size set to: {$batch_size}. Continue?", 'yes' );
+
+        // Set whether to reset the transport scan tracking.
+        $reset_tracking = isset( $assoc_args['reset-tracking'] );
+        if ( $reset_tracking ) {
+            WP_CLI::log( 'Resetting transport scan tracking for SDS files.' );
+        }
+
+        // Set the search term
+        $search_term = 'transport';
+        if ( isset( $assoc_args['search-term'] ) && is_string( $assoc_args['search-term'] ) && trim( $assoc_args['search-term'] ) !== '' ) {
+            $search_term = trim( $assoc_args['search-term'] );
+        }
+
+        // Set the directory path
+        $wp_uploads_dir = wp_get_upload_dir();
+        $directory_path = $wp_uploads_dir['basedir'] . '/';
+        if ( isset( $assoc_args['subdirectory-path'] ) && is_string( $assoc_args['subdirectory-path'] ) ) {
+            $directory_path .= rtrim( $assoc_args['subdirectory-path'], '/' ) . '/';
+        }
+        WP_CLI::confirm( "Use directory path: {$directory_path} ?", 'yes' );
+        if ( ! is_dir( $directory_path ) ) {
+            WP_CLI::error( "The specified directory does not exist: {$directory_path}" );
+            return;
+        }
+
+            // Get all PDF files in the directory and normalize paths
+            $all_pdf_files = glob( $directory_path . '*.pdf' );
+
+            if ( empty( $all_pdf_files ) ) {
+                WP_CLI::log( "No PDF files found in the specified directory: {$directory_path}" );
+                return;
+            }
+
+            // Load list of already-checked files for this transport scan
+            $checked_option_key = 'one-time-script-sds-transport-checked-files';
+            $checked_files = get_option( $checked_option_key, array() );
+            if ( $reset_tracking ) {
+                $checked_files = array();
+                delete_option( $checked_option_key );
+            }
+
+            if ( ! is_array( $checked_files ) ) {
+                $checked_files = array();
+            }
+
+            // Normalize both lists for reliable comparisons
+            $normalized_all = array_map( 'wp_normalize_path', $all_pdf_files );
+            $normalized_checked = array_map( 'wp_normalize_path', $checked_files );
+
+            // Determine remaining files in original order
+            $remaining = array();
+            foreach ( $normalized_all as $idx => $path ) {
+                if ( ! in_array( $path, $normalized_checked, true ) ) {
+                    $remaining[] = $path;
+                }
+            }
+
+            $number_of_pdfs = count( $normalized_all );
+            $transport_files = array();
+            $transport_rows = array();
+            $pdf_files_batch = array_slice( $remaining, 0, $batch_size, true );
+
+            if ( empty( $pdf_files_batch ) ) {
+                WP_CLI::log( "No remaining PDFs to check in {$directory_path}." );
+                return;
+            }
+
+            $processed_in_batch = 0;
+
+            WP_CLI::log( 'Starting transport scan for this batch. Remaining files to process: ' . count( $pdf_files_batch ) );
+            foreach ( $pdf_files_batch as $file_number => $file ) {
+                WP_CLI::log( "Checking file " . ( $file_number + 1 ) . " of " . count( $pdf_files_batch ) . ": {$file}" );
+
+                if ( ! file_exists( $file ) ) {
+                    WP_CLI::warning( "Skipping missing file: {$file}." );
+                    $checked_files[] = $file;
+                    update_option( $checked_option_key, $checked_files );
+                    $processed_in_batch++;
+                    continue;
+                }
+
+                $scraper = new JB_PDF_Scraper( $file );
+                $contains_search_term = false;
+
+                if ( $scraper->is_pdf_readable ) {
+                    $contains_search_term = stripos( $scraper->cleaned_text, $search_term ) !== false;
+                    if ( $contains_search_term ) {
+                        $transport_files[] = $file;
+                    }
+                } else {
+                    WP_CLI::log( "No readable text found in file {$file}." );
+                }
+
+                $transport_details = $scraper->get_sds_transport_details();
+                $missing_fields = array();
+                foreach ( $transport_details as $field_key => $field_value ) {
+                    if ( '' === $field_value ) {
+                        $missing_fields[] = $field_key;
+                    }
+                }
+
+                $transport_rows[] = array_merge(
+                    array(
+                        'file_path'             => $file,
+                        'file_name'             => basename( $file ),
+                        'is_pdf_readable'       => $scraper->is_pdf_readable ? 'Yes' : 'No',
+                        'contains_search_term'  => $contains_search_term ? 'Yes' : 'No',
+                        'missing_fields'        => implode( ', ', $missing_fields ),
+                    ),
+                    $transport_details
+                );
+
+                // Mark this file as checked and persist immediately
+                $checked_files[] = $file;
+                update_option( $checked_option_key, $checked_files );
+
+                $processed_in_batch++;
+            }
+
+            // Ensure the logs directory exists before writing the CSV.
+            if ( ! is_dir( JB_LIBRARY_MAINTENANCE_PLUGIN_DIR . 'logs/' ) ) {
+                wp_mkdir_p( JB_LIBRARY_MAINTENANCE_PLUGIN_DIR . 'logs/' );
+            }
+
+            if ( ! empty( $transport_rows ) ) {
+                $csv_file_path = JB_LIBRARY_MAINTENANCE_PLUGIN_DIR . 'logs/transport-scan-' . gmdate( 'Ymd-His', time() ) . '.csv';
+                $csv_handle = fopen( $csv_file_path, 'x' );
+                if ( $csv_handle ) {
+                    WP_CLI\Utils\write_csv(
+                        $csv_handle,
+                        $transport_rows,
+                        array(
+                            'file_path',
+                            'file_name',
+                            'is_pdf_readable',
+                            'contains_search_term',
+                            'un_code',
+                            'hazardous_description',
+                            'hazardous_class_number',
+                            'packing_group',
+                            'shipping_class',
+                            'nmfc_code',
+                            'transport_section',
+                            'missing_fields',
+                        )
+                    );
+                    fclose( $csv_handle );
+                    WP_CLI::log( "Transport details written to CSV file: {$csv_file_path}" );
+                } else {
+                    WP_CLI::warning( 'Failed to write transport scan CSV file.' );
+                }
+            }
+
+            WP_CLI::log( "Processed {$processed_in_batch} PDFs of {$number_of_pdfs} PDF files found." );
+            WP_CLI::log( "SDS PDFs containing '{$search_term}': " . count( $transport_files ) );
+
+            if ( ! empty( $transport_files ) ) {
+                WP_CLI::log( "Files containing '{$search_term}':" );
+                foreach ( $transport_files as $transport_file ) {
+                    WP_CLI::log( $transport_file );
+                }
+            }
+
+            if ( count( $remaining ) > $processed_in_batch ) {
+                WP_CLI::log( "Scan stopped after reaching batch size of {$batch_size}. Run again to continue checking remaining files." );
+            } else {
+                WP_CLI::success( "Transport scan completed for all SDS PDFs in {$directory_path}." );
+            }
+
+        WP_CLI::log( "Processed {$processed_in_batch} PDFs of {$number_of_pdfs} PDF files found. SDS PDFs containing '{$search_term}': " . count( $transport_files ) );
+    }
+    WP_CLI::add_command( 'check-pdf-media-transport-for-sds', 'check_pdf_media_transport_for_sds' );
+
+    /**
+     * Clear the transport scan checked-file tracking for SDS files.
+     *
+     * Usage:
+     *  wp pdf-media-transport-clear-checked-files
+     *
+     * @return void
+     */
+    function clear_pdf_media_transport_sds_checked_files(): void {
+        $option_key = 'one-time-script-sds-transport-checked-files';
+        if ( delete_option( $option_key ) ) {
+            WP_CLI::log( 'Cleared transport scan tracking for SDS files.' );
+            return;
+        }
+
+        WP_CLI::log( 'No transport scan tracking option found, or it was already cleared.' );
+    }
+    WP_CLI::add_command( 'pdf-media-transport-clear-checked-files', 'clear_pdf_media_transport_sds_checked_files' );
 
     /**
      * Check that the PDF parser is able to read the content of PDF files in a specified directory.
