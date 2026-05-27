@@ -31,7 +31,10 @@ wp-config.php
 
 # Log files
 *.log
-/wp-content/plugins/jb-library-maintenance/logs/
+logs/
+
+# Generated CSV files
+*.csv
 
 # htaccess
 /.htaccess

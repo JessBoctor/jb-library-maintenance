@@ -69,3 +69,4 @@ require_once JB_LIBRARY_MAINTENANCE_PLUGIN_DIR . 'jb-library-pdf-document-import
 require_once JB_LIBRARY_MAINTENANCE_PLUGIN_DIR . 'jb-library-import-files.php';
 require_once JB_LIBRARY_MAINTENANCE_PLUGIN_DIR . 'jb-library-scrape-pdf-documents.php';
 require_once JB_LIBRARY_MAINTENANCE_PLUGIN_DIR . 'jb-library-pdf-clean-sweep.php';
+require_once JB_LIBRARY_MAINTENANCE_PLUGIN_DIR . 'jb-library-pdf-compare-stock-pdfs.php';
