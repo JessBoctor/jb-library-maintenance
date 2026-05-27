@@ -287,12 +287,14 @@ if ( ! class_exists( 'JB_PDF_Transport_Extractor' ) ) {
             return (bool) preg_match( '/(^|[^a-z0-9])' . $alias . '([^a-z0-9]|$)/i', $line );
         }
 
-        private function get_agency_match_from_line( string $line ): array {
+        private function get_agency_matches_from_line( string $line ): array {
+            $matches = array();
+
             foreach ( self::$AGENCY_MAP as $agency => $metadata ) {
                 foreach ( $metadata['aliases'] as $alias ) {
                     if ( $this->alias_matches_line( $alias, $line ) ) {
                         $position = stripos( $line, $alias );
-                        return array(
+                        $matches[] = array(
                             'agency' => $agency,
                             'agency_alias' => $alias,
                             'agency_alias_position' => false === $position ? 0 : $position,
@@ -303,7 +305,26 @@ if ( ! class_exists( 'JB_PDF_Transport_Extractor' ) ) {
                 }
             }
 
-            return array();
+            usort(
+                $matches,
+                function ( array $a, array $b ): int {
+                    return $a['agency_alias_position'] <=> $b['agency_alias_position'];
+                }
+            );
+
+            $matches_by_agency = array();
+            foreach ( $matches as $match ) {
+                if ( ! isset( $matches_by_agency[ $match['agency'] ] ) ) {
+                    $matches_by_agency[ $match['agency'] ] = $match;
+                }
+            }
+
+            return array_values( $matches_by_agency );
+        }
+
+        private function get_agency_match_from_line( string $line ): array {
+            $matches = $this->get_agency_matches_from_line( $line );
+            return $matches[0] ?? array();
         }
 
 	        /**
@@ -500,8 +521,34 @@ if ( ! class_exists( 'JB_PDF_Transport_Extractor' ) ) {
             return $records;
         }
 
+        /**
+         * Parser 2: repeated agency/status phrases on one line.
+         *
+         * Handles compact non-regulated lines like
+         * "DOT not regulated TDG not regulated IMDG not regulated".
+         */
+        private function parse_inline_agency_status_records(): array {
+            $records = array();
+
+            if ( ! preg_match_all( '/\b(DOT|TDG|IMDG|IATA|ICAO|ADR|RID|ADN|NOM)\b\s+(not regulated|not restricted|non[-\s]?regulated|limited quantity|consumer commodity|orm-d|id\s*8000)\b/i', $this->transport_section, $matches, PREG_SET_ORDER ) ) {
+                return $records;
+            }
+
+            foreach ( $matches as $match ) {
+                $agency_match = $this->get_agency_match_from_line( $match[1] );
+                $record = $this->get_empty_transport_record( $agency_match['agency'] ?? strtoupper( $match[1] ) );
+                $record['agency_alias'] = $agency_match['agency_alias'] ?? strtolower( $match[1] );
+                $record['transport_types'] = $agency_match['transport_types'] ?? $record['transport_types'];
+                $record['jurisdiction'] = $agency_match['jurisdiction'] ?? $record['jurisdiction'];
+                $record['shipping_name'] = $this->normalize_whitespace( $match[2] );
+                $records[] = $this->finalize_transport_record( $record, $match[0] );
+            }
+
+            return $records;
+        }
+
 	        /**
-	         * Parser 2: agency-grouped sections.
+	         * Parser 3: agency-grouped sections.
 	         *
 	         * Handles SDS sections where each agency gets its own block or line,
 	         * such as DOT, IATA, and IMDG with separate values under each label.
@@ -532,6 +579,7 @@ if ( ! class_exists( 'JB_PDF_Transport_Extractor' ) ) {
 	                    $current_record['jurisdiction'] = $agency_match['jurisdiction'];
 
 	                    $line = trim( preg_replace( '/^.*?' . preg_quote( $agency_match['agency_alias'], '/' ) . '\b\s*[:\-\/]?\s*/i', '', $line, 1 ) );
+	                    $line = trim( preg_replace( '/^\(?[A-Z]{2,5}\)?\s*/', '', $line, 1 ) );
 	                    if ( '' === $line ) {
 	                        continue;
 	                    }
@@ -584,7 +632,7 @@ if ( ! class_exists( 'JB_PDF_Transport_Extractor' ) ) {
         }
 
         /**
-         * Parser 3: flat label/value sections.
+         * Parser 4: flat label/value sections.
          *
          * Handles SDS sections that do not identify a regulatory agency and only
          * provide one set of labels like UN number, proper shipping name, class,
@@ -654,289 +702,17 @@ if ( ! class_exists( 'JB_PDF_Transport_Extractor' ) ) {
                 return $records;
             }
 
+            $records = $this->parse_inline_agency_status_records();
+            if ( ! empty( $records ) ) {
+                return $records;
+            }
+
             $records = $this->parse_grouped_transport_records();
             if ( ! empty( $records ) ) {
                 return $records;
             }
 
             return $this->parse_flat_transport_record();
-        }
-
-        /**
-         * Legacy summary parser used by the single-value getter methods below.
-         *
-         * The transport CSV should prefer get_transport_records(), but these
-         * getters still provide a compact "best value" summary for older callers.
-         */
-        private function parse_transport_matrix(): array {
-            $section = $this->transport_section;
-            $result = array( 'by_standard' => array() );
-
-            if ( empty( $section ) ) {
-                return $result;
-            }
-
-            $lines = preg_split('/[\r\n;]+/', $section);
-            foreach ( $lines as $line ) {
-                $line = trim( preg_replace('/\s+/', ' ', $line) );
-                if ( $line === '' ) {
-                    continue;
-                }
-
-                if ( preg_match_all('/\b(UN(?: proper shipping name)?|UN number|Packing group|Packing group ADR|Packing group ADR\/RID)\b[^\r\n]*?((?:ADR\/RID|ADR|RID|IMDG|IATA-DGR)(?:[\/.,\s]*(?:ADR\/RID|ADR|RID|IMDG|IATA-DGR))*)\s*[:\-]\s*([^\n\r]+)/i', $line, $lm, PREG_SET_ORDER) ) {
-                    foreach ( $lm as $mline ) {
-                        $standards_raw = $mline[2];
-                        $value_raw = trim( $mline[3] );
-
-                        $parts_label = preg_split('/\b(?:ADR\/RID|ADR|RID|IMDG|IATA-DGR)\b\s*[:\-]?/i', $value_raw);
-                        if ( is_array( $parts_label ) && count( $parts_label ) > 0 ) {
-                            $value_raw = trim( $parts_label[0] );
-                        }
-
-                        $stds = preg_split('/[\/ ,]+/', $standards_raw);
-                        $stds = array_map( function( $s ) { return strtoupper( trim( $s ) ); }, $stds );
-
-                        $un = '';
-                        if ( preg_match('/UN\s*(\d{3,4})/i', $value_raw, $u) ) {
-                            $un = 'UN' . $u[1];
-                        }
-
-                        $shipping = '';
-                        if ( $un !== '' ) {
-                            $shipping = preg_replace('/^.*?UN\s*\d{3,4}\s*,?\s*/i', '', $value_raw);
-                        } else {
-                            $shipping = preg_replace('/\b(Transport\b|Transport hazard class|Packing group|IMDG|IATA-DGR)\b.*/i', '', $value_raw);
-                        }
-                        $shipping = trim( preg_replace('/\s+/', ' ', $shipping) );
-
-                        $pg = '';
-                        if ( preg_match('/Packing group[^:]*[:\s]*([^,\n\r]+)/i', $value_raw, $pgm) ) {
-                            $pg = strtoupper( trim( $pgm[1] ) );
-                        } elseif ( preg_match('/\b(not applicable|n\/a)\b/i', $value_raw, $pgm2) ) {
-                            $pg = strtoupper( $pgm2[1] );
-                        }
-
-                        $tclass = '';
-                        if ( preg_match('/\bClass\s*(\d+(?:\.\d+)?)/i', $value_raw, $cm) ) {
-                            $tclass = strtoupper( trim( $cm[1] ) );
-                        }
-
-                        foreach ( $stds as $std ) {
-                            if ( $std === '' ) {
-                                continue;
-                            }
-                            if ( ! isset( $result['by_standard'][ $std ] ) ) {
-                                $result['by_standard'][ $std ] = array(
-                                    'un' => $un,
-                                    'shipping_name' => $shipping,
-                                    'packing_group' => $pg,
-                                    'transport_class' => $tclass,
-                                );
-                            } else {
-                                $existing = $result['by_standard'][ $std ];
-                                $result['by_standard'][ $std ] = array(
-                                    'un' => $existing['un'] ?: $un,
-                                    'shipping_name' => $existing['shipping_name'] ?: $shipping,
-                                    'packing_group' => $existing['packing_group'] ?: $pg,
-                                    'transport_class' => $existing['transport_class'] ?: $tclass,
-                                );
-                            }
-                        }
-                    }
-                    continue;
-                }
-
-                if ( preg_match_all('/((?:ADR\/RID|ADR|RID|IMDG|IATA-DGR)(?:[\/.,\s]*(?:ADR\/RID|ADR|RID|IMDG|IATA-DGR))*)\s*[:\-]\s*(.+)/i', $line, $m, PREG_SET_ORDER) ) {
-                    foreach ( $m as $match ) {
-                        $standards_raw = $match[1];
-                        $value_raw = trim( $match[2] );
-
-                        $parts = preg_split('/\b(?:ADR\/RID|ADR|RID|IMDG|IATA-DGR)\b\s*[:\-]?/i', $value_raw);
-                        if ( is_array( $parts ) && count( $parts ) > 0 ) {
-                            $value_raw = trim( $parts[0] );
-                        }
-
-                        $stds = preg_split('/[\/ ,]+/', $standards_raw);
-                        $stds = array_map( function( $s ) { return strtoupper( trim( $s ) ); }, $stds );
-
-                        $un = '';
-                        if ( preg_match('/UN\s*(\d{3,4})/i', $value_raw, $u) ) {
-                            $un = 'UN' . $u[1];
-                        }
-
-                        $shipping = '';
-                        if ( $un !== '' ) {
-                            $shipping = preg_replace('/^.*?UN\s*\d{3,4}\s*,?\s*/i', '', $value_raw);
-                        } else {
-                            $shipping = preg_replace('/\b(Transport\b|Transport hazard class|Packing group|IMDG|IATA-DGR)\b.*/i', '', $value_raw);
-                        }
-                        $shipping = trim( preg_replace('/\s+/', ' ', $shipping) );
-
-                        $pg = '';
-                        if ( preg_match('/Packing group[^:]*[:\s]*([^,\n\r]+)/i', $value_raw, $pgm) ) {
-                            $pg = strtoupper( trim( $pgm[1] ) );
-                        } elseif ( preg_match('/\b(not applicable|n\/a)\b/i', $value_raw, $pgm2) ) {
-                            $pg = strtoupper( $pgm2[1] );
-                        }
-
-                        $tclass = '';
-                        if ( preg_match('/\bClass\s*(\d+(?:\.\d+)?)/i', $value_raw, $cm) ) {
-                            $tclass = strtoupper( trim( $cm[1] ) );
-                        }
-
-                        foreach ( $stds as $std ) {
-                            if ( $std === '' ) {
-                                continue;
-                            }
-                            if ( ! isset( $result['by_standard'][ $std ] ) ) {
-                                $result['by_standard'][ $std ] = array(
-                                    'un' => $un,
-                                    'shipping_name' => $shipping,
-                                    'packing_group' => $pg,
-                                    'transport_class' => $tclass,
-                                );
-                            } else {
-                                $existing = $result['by_standard'][ $std ];
-                                $result['by_standard'][ $std ] = array(
-                                    'un' => $existing['un'] ?: $un,
-                                    'shipping_name' => $existing['shipping_name'] ?: $shipping,
-                                    'packing_group' => $existing['packing_group'] ?: $pg,
-                                    'transport_class' => $existing['transport_class'] ?: $tclass,
-                                );
-                            }
-                        }
-                    }
-                    continue;
-                }
-
-                if ( preg_match('/UN\s*(\d{3,4})\s*,?\s*(.+)/i', $line, $mm) ) {
-                    $unval = 'UN' . $mm[1];
-                    $ship = trim( $mm[2] );
-                    if ( ! isset( $result['by_standard']['GENERIC'] ) ) {
-                        $result['by_standard']['GENERIC'] = array(
-                            'un' => $unval,
-                            'shipping_name' => $ship,
-                            'packing_group' => '',
-                            'transport_class' => '',
-                        );
-                    }
-                }
-            }
-
-            if ( preg_match_all('/UN\s*(\d{3,4})\s*,\s*([^\n\r]+)/i', $section, $un_matches, PREG_SET_ORDER | PREG_OFFSET_CAPTURE) ) {
-                foreach ( $un_matches as $um ) {
-                    $un_num = $um[1][0];
-                    $ship_text = trim( $um[2][0] );
-                    $ship_text = preg_replace('/UN\s*\d{3,4}\s*,?\s*/i', '', $ship_text);
-                    $ship_text = preg_replace('/\b(?:ADR\/RID|ADR|RID|IMDG|IATA-DGR|Transport hazard class|Packing group|UN proper shipping name|UN)\b.*/i', '', $ship_text);
-                    $ship_text = trim( $ship_text );
-
-                    $pos = $um[0][1];
-                    $look_back = substr( $section, max(0, $pos - 200), 200 );
-                    if ( preg_match_all('/(ADR\/RID|IATA-DGR|IMDG|ADR|RID)/i', $look_back, $stds_found, PREG_OFFSET_CAPTURE) ) {
-                        $last = end( $stds_found[0] );
-                        $std_label = strtoupper( $last[0] );
-                    } else {
-                        $std_label = 'GENERIC';
-                    }
-
-                    if ( $ship_text === '' ) {
-                        continue;
-                    }
-
-                    if ( ! isset( $result['by_standard'][ $std_label ] ) ) {
-                        $result['by_standard'][ $std_label ] = array(
-                            'un' => 'UN' . $un_num,
-                            'shipping_name' => $ship_text,
-                            'packing_group' => '',
-                            'transport_class' => '',
-                        );
-                    } else {
-                        if ( empty( $result['by_standard'][ $std_label ]['shipping_name'] ) ) {
-                            $result['by_standard'][ $std_label ]['shipping_name'] = $ship_text;
-                        }
-                        if ( empty( $result['by_standard'][ $std_label ]['un'] ) ) {
-                            $result['by_standard'][ $std_label ]['un'] = 'UN' . $un_num;
-                        }
-                    }
-                }
-            }
-
-            return $result;
-        }
-
-        /**
-         * Legacy helper for SDS sections that list several agency labels before a
-         * sequence of proper shipping names.
-         */
-        private function parse_shipping_name_matrix(): array {
-            $section = $this->transport_section;
-            if ( empty( $section ) ) {
-                return array();
-            }
-
-            if ( ! preg_match('/\bUN proper shipping name\b(.+?)(?=\bTransport hazard class|Packing group|$)/is', $section, $match) ) {
-                return array();
-            }
-
-            $block = trim( preg_replace('/\r\n?/', "\n", $match[1]) );
-            $label_pattern = '/((?:ADR\/RID|ADR|RID|IMDG|IATA-DGR)(?:\s*,\s*(?:ADR\/RID|ADR|RID|IMDG|IATA-DGR))*)\s*:\s*/i';
-            $names = array();
-            $labels = array();
-
-            if ( preg_match_all( $label_pattern, $block, $label_matches, PREG_OFFSET_CAPTURE ) ) {
-                foreach ( $label_matches[1] as $label ) {
-                    $labels[] = strtoupper( trim( $label[0] ) );
-                }
-                $last_match = end( $label_matches[0] );
-                $content_start = $last_match[1] + strlen( $last_match[0] );
-                $content = trim( substr( $block, $content_start ) );
-            } else {
-                $content = $block;
-            }
-
-            if ( preg_match_all('/\bUN\s*(\d{3,4})\s*,\s*([^\n\r]+?)(?=(?:\bUN\s*\d{3,4}\b|$))/i', $content, $un_matches, PREG_SET_ORDER) ) {
-                foreach ( $un_matches as $un_match ) {
-                    $names[] = 'UN' . $un_match[1] . ', ' . $this->normalize_whitespace( $un_match[2] );
-                }
-            }
-
-            if ( empty( $labels ) && ! empty( $names ) ) {
-                return array( 'GENERIC' => implode( '; ', $names ) );
-            }
-
-            $result = array();
-            $count = min( count( $labels ), count( $names ) );
-            for ( $index = 0; $index < $count; $index++ ) {
-                $result[ $labels[ $index ] ] = $names[ $index ];
-            }
-
-            return $result;
-        }
-
-        public function get_sds_transport_details(): array {
-            return array(
-                'regulated_material'     => $this->is_regulated_material(),
-                'un_code'                => $this->get_un_code(),
-                'shipping_name'          => $this->get_shipping_name(),
-                'hazardous_class_number' => $this->get_hazardous_class_number(),
-                'packing_group'          => $this->get_packing_group(),
-                'shipping_class'         => $this->get_shipping_class(),
-                'nmfc_code'              => $this->get_nmfc_code(),
-                'transport_section'      => $this->get_section(),
-            );
-        }
-
-
-        public function get_shipping_name(): string {
-            $records = $this->get_transport_records();
-            foreach ( $records as $record ) {
-                if ( ! empty( $record['shipping_name'] ) ) {
-                    return $record['shipping_name'];
-                }
-            }
-
-            return '';
         }
 
 	        /**
@@ -1000,141 +776,6 @@ if ( ! class_exists( 'JB_PDF_Transport_Extractor' ) ) {
 	        public function get_hazardous_terms(): string {
 	            return $this->match_hazardous_terms( $this->transport_section );
 	        }
-
-        public function get_un_code(): string {
-            
-            $matrix = $this->parse_transport_matrix();
-            if ( ! empty( $matrix['by_standard'] ) ) {
-                if ( isset( $matrix['by_standard']['GENERIC'] ) && ! empty( $matrix['by_standard']['GENERIC']['un'] ) ) {
-                    return $matrix['by_standard']['GENERIC']['un'];
-                }
-
-                $counts = array();
-                foreach ( $matrix['by_standard'] as $data ) {
-                    if ( ! empty( $data['un'] ) ) {
-                        $counts[ $data['un'] ] = ( $counts[ $data['un'] ] ?? 0 ) + 1;
-                    }
-                }
-                if ( ! empty( $counts ) ) {
-                    arsort( $counts );
-                    return array_key_first( $counts );
-                }
-            }
-
-            $un_number = $this->extract_regex_value( '/\bUN(?: number)?[ \-]*([0-9]{3,4})\b/i', $this->transport_section );
-            if ( ! $un_number ) {
-                $un_number = $this->extract_regex_value( '/\bUN\s*([0-9]{3,4})\b/i', $this->transport_section );
-            }
-            return $un_number ? 'UN' . $un_number : '';
-        }
-
-	        public function is_regulated_material(): bool {
-	            if ( empty( $this->transport_section ) ) {
-	                return false;
-	            }
-
-	            $records = $this->get_transport_records();
-	            foreach ( $records as $record ) {
-	                if ( ! empty( $record['regulated_material'] ) ) {
-	                    return true;
-	                }
-	            }
-
-	            if ( '' !== $this->get_un_code() ) {
-	                return true;
-	            }
-
-	            if ( $this->has_non_regulated_language( $this->transport_section ) ) {
-	                return false;
-	            }
-
-	            return $this->has_regulated_exception_language( $this->transport_section );
-	        }
-
-        public function get_hazardous_class_number(): string {
-            $matrix = $this->parse_transport_matrix();
-            if ( ! empty( $matrix['by_standard'] ) ) {
-                $order = array( 'IATA-DGR', 'ADR/RID', 'ADR', 'IMDG', 'RID' );
-                foreach ( $order as $o ) {
-                    if ( isset( $matrix['by_standard'][ $o ] ) && ! empty( $matrix['by_standard'][ $o ]['transport_class'] ) ) {
-                        return $matrix['by_standard'][ $o ]['transport_class'];
-                    }
-                }
-                foreach ( $matrix['by_standard'] as $data ) {
-                    if ( ! empty( $data['transport_class'] ) ) {
-                        return $data['transport_class'];
-                    }
-                }
-            }
-
-            $result = $this->extract_regex_value(
-                '/\b(?:Transport hazard class\(es\)|Transport hazard class|hazard\s*(?:class|group)|hazardous\s*group|hazardous\s*class)\b[^0-9A-Za-z]*(\d+(?:\.\d+)?)/i',
-                $this->transport_section
-            );
-
-            if ( empty( $result ) ) {
-                $result = $this->extract_regex_value('/\bClass\s*(\d+(?:\.\d+)?)(?:\b|,|\s)/i', $this->transport_section );
-            }
-
-            return $result;
-        }
-
-        public function get_packing_group(): string {
-            $matrix = $this->parse_transport_matrix();
-            if ( ! empty( $matrix['by_standard'] ) ) {
-                foreach ( $matrix['by_standard'] as $std => $data ) {
-                    if ( ! empty( $data['packing_group'] ) && preg_match('/not applicable|n\/a/i', $data['packing_group'] ) ) {
-                        return 'Not applicable';
-                    }
-                }
-                foreach ( $matrix['by_standard'] as $data ) {
-                    if ( ! empty( $data['packing_group'] ) ) {
-                        $pg = $data['packing_group'];
-                        if ( preg_match('/I{1,3}|II|III/i', $pg, $m) ) {
-                            return strtoupper( $m[0] );
-                        }
-                        if ( preg_match('/\b(1|2|3)\b/', $pg, $m2) ) {
-                            return $m2[1];
-                        }
-	                        return $this->normalize_packing_group( $pg );
-                    }
-                }
-            }
-
-            $group = $this->extract_regex_value('/\b(?:packing\s*group|pg\b)\b.*?[:\s]*([^,\n\r]+)/i', $this->transport_section );
-            if ( $group ) {
-                if ( preg_match('/\b(?:ADR\/RID|ADR|RID|IMDG|IATA-DGR)\b/i', $group) ) {
-                    $pos = stripos( $this->transport_section, 'Packing group' );
-                    if ( $pos !== false ) {
-                        $snippet = substr( $this->transport_section, $pos, 600 );
-                        if ( preg_match('/:\s*([^\n\r]+)/', $snippet, $mcol) ) {
-                            $after = trim( $mcol[1] );
-                        } elseif ( preg_match('/Packing group\s*[\r\n]+([^\n\r]+)/i', $snippet, $mcol2) ) {
-                            $after = trim( $mcol2[1] );
-                        } else {
-                            $after = '';
-                        }
-
-                        if ( $after !== '' ) {
-                            if ( preg_match('/\b(not applicable|n\/a)\b/i', $after, $m2) ) {
-                                return 'Not applicable';
-                            }
-                            if ( preg_match('/\b(I{1,3}|II|III|1|2|3)\b/i', $after, $m3) ) {
-	                            return $this->normalize_packing_group( $m3[1] );
-	                        }
-	                        return $this->normalize_packing_group( preg_replace('/[\.,].*/','', $after) );
-                        }
-                    }
-                }
-
-                if ( preg_match('/not applicable|n\/a/i', $group) ) {
-                    return 'Not applicable';
-                }
-	                return $this->normalize_packing_group( $group );
-            }
-
-            return '';
-        }
 
 	        public function get_shipping_class(): string {
 	            $class = $this->extract_regex_value(
