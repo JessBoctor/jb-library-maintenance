@@ -894,12 +894,7 @@ if ( ! class_exists( 'JB_PDF_Transport_Extractor' ) ) {
 	        }
 
 	        public function get_hazardous_terms(): string {
-	            $transport_terms = $this->match_hazardous_terms( $this->transport_section );
-	            if ( '' !== $transport_terms ) {
-	                return $transport_terms;
-	            }
-
-	            return $this->match_hazardous_terms( $this->cleaned_text );
+	            return $this->match_hazardous_terms( $this->transport_section );
 	        }
 
         public function get_un_code(): string {
