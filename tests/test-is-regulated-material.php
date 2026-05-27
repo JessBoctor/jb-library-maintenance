@@ -47,6 +47,23 @@ $cases = array(
             'regulated_material' => true,
         ),
     ),
+    'grouped agencies keep agency-specific transport section' => array(
+        'text' => "14. Transport information\nDOT\nUN Number: UN1993\nProper Shipping Name: Flammable liquids\nHazard class: 3\nPacking Group: II\nIATA\nNot regulated\n15. Regulatory information",
+        'expected_records' => array(
+            array(
+                'agency' => 'DOT',
+                'un_code' => 'UN1993',
+                'regulated_material' => true,
+                'transport_section' => 'DOT UN Number: UN1993 Proper Shipping Name: Flammable liquids Hazard class: 3 Packing Group: II',
+            ),
+            array(
+                'agency' => 'IATA',
+                'un_code' => '',
+                'regulated_material' => false,
+                'transport_section' => 'IATA Not regulated',
+            ),
+        ),
+    ),
 );
 
 $errors = array();
@@ -54,6 +71,26 @@ foreach ( $cases as $label => $case ) {
     $extractor = new JB_PDF_Transport_Extractor( $case['text'] );
     $records = $extractor->get_transport_records();
     $actual = array( 'record_count' => count( $records ) );
+
+    if ( isset( $case['expected_records'] ) ) {
+        foreach ( $case['expected_records'] as $index => $expected_record ) {
+            $record = $records[ $index ] ?? array();
+            foreach ( $expected_record as $key => $value ) {
+                if ( ( $record[ $key ] ?? null ) !== $value ) {
+                    $errors[] = sprintf(
+                        '%s record %d: Expected %s to be %s, got %s',
+                        $label,
+                        $index,
+                        $key,
+                        var_export( $value, true ),
+                        var_export( $record[ $key ] ?? null, true )
+                    );
+                }
+            }
+        }
+
+        continue;
+    }
 
     foreach ( $records as $record ) {
         foreach ( $case['expected'] as $key => $value ) {
