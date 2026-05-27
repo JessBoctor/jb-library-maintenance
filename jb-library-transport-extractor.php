@@ -241,7 +241,7 @@ if ( ! class_exists( 'JB_PDF_Transport_Extractor' ) ) {
 	                'jurisdiction'           => $metadata['jurisdiction'],
 	                'regulated_material'     => false,
 	                'un_code'                => '',
-	                'hazardous_description'  => '',
+	                'shipping_name'          => '',
 	                'hazard_class'           => '',
 	                'packing_group'          => '',
 	                'shipping_class'         => $this->get_shipping_class(),
@@ -348,7 +348,7 @@ if ( ! class_exists( 'JB_PDF_Transport_Extractor' ) ) {
 	                ' ',
 	                array_filter(
 	                    array(
-	                        $record['hazardous_description'] ?? '',
+	                        $record['shipping_name'] ?? '',
 	                        $record['hazard_class'] ?? '',
 	                        $record['packing_group'] ?? '',
 	                        $record['hazardous_terms'] ?? '',
@@ -376,7 +376,7 @@ if ( ! class_exists( 'JB_PDF_Transport_Extractor' ) ) {
 	            if ( preg_match( '/\b(un|un\/id|un\/na|id)\b/', $label ) ) {
 	                $record['un_code'] = $this->normalize_un_code( $value );
 	            } elseif ( preg_match( '/shipping name|proper shipping name|description/', $label ) ) {
-	                $record['hazardous_description'] = $value;
+	                $record['shipping_name'] = $value;
 	            } elseif ( preg_match( '/hazard class|class\/division|transport hazard class/', $label ) ) {
 	                if ( preg_match( '/\b(\d+(?:\.\d+)?)\b/', $value, $matches ) ) {
 	                    $record['hazard_class'] = $matches[1];
@@ -409,7 +409,7 @@ if ( ! class_exists( 'JB_PDF_Transport_Extractor' ) ) {
                     $record['transport_types'] = $agency_match['transport_types'] ?? $record['transport_types'];
                     $record['jurisdiction'] = $agency_match['jurisdiction'] ?? $record['jurisdiction'];
                     $record['un_code'] = $this->normalize_un_code( $matches[2] );
-	                    $record['hazardous_description'] = $this->normalize_whitespace( $matches[3] );
+	                    $record['shipping_name'] = $this->normalize_whitespace( $matches[3] );
 	                    $record['hazard_class'] = $matches[4];
 	                    $record['packing_group'] = ucfirst( strtolower( $matches[5] ) );
 	                    $records[] = $this->finalize_transport_record( $record, $line );
@@ -501,7 +501,7 @@ if ( ! class_exists( 'JB_PDF_Transport_Extractor' ) ) {
 
             $label_patterns = array(
                 'un_code' => '/\b(?:UN Number|UN number|UN\/NA NUMBER|UN\/ID no)\b\s*:?\s*([^\n\r]+)/i',
-	                'hazardous_description' => '/\b(?:UN Proper Shipping Name|Proper Shipping Name|Shipping Name|Description)\b\s*:?\s*([^\n\r]+)/i',
+	                'shipping_name' => '/\b(?:UN Proper Shipping Name|Proper Shipping Name|Shipping Name|Description)\b\s*:?\s*([^\n\r]+)/i',
 	                'hazard_class' => '/\b(?:Transport Hazard Class|Hazard class|Primary Hazard Class\/Division)\b\s*:?\s*([^\n\r]+)/i',
 	                'packing_group' => '/\bPacking Group\b\s*:?\s*([^\n\r]+)/i',
 	                'shipping_class' => '/\b(?:(?:Shipping|Ship|SHP|Freight)\s*(?:Class|Group))\b\s*:?\s*([^\n\r]+)/i',
@@ -526,7 +526,7 @@ if ( ! class_exists( 'JB_PDF_Transport_Extractor' ) ) {
 
             if (
                 '' === $record['un_code']
-	                && '' === $record['hazardous_description']
+	                && '' === $record['shipping_name']
 	                && '' === $record['hazard_class']
 	                && '' === $record['packing_group']
 	                && '' === $record['shipping_class']
@@ -803,7 +803,6 @@ if ( ! class_exists( 'JB_PDF_Transport_Extractor' ) ) {
             return array(
                 'regulated_material'     => $this->is_regulated_material(),
                 'un_code'                => $this->get_un_code(),
-                'hazardous_description'  => $this->get_hazardous_description(),
                 'shipping_name'          => $this->get_shipping_name(),
                 'hazardous_class_number' => $this->get_hazardous_class_number(),
                 'packing_group'          => $this->get_packing_group(),
@@ -815,7 +814,14 @@ if ( ! class_exists( 'JB_PDF_Transport_Extractor' ) ) {
 
 
         public function get_shipping_name(): string {
-            return $this->get_hazardous_description();
+            $records = $this->get_transport_records();
+            foreach ( $records as $record ) {
+                if ( ! empty( $record['shipping_name'] ) ) {
+                    return $record['shipping_name'];
+                }
+            }
+
+            return '';
         }
 
 	        private function match_hazardous_terms( string $text ): string {
@@ -928,17 +934,6 @@ if ( ! class_exists( 'JB_PDF_Transport_Extractor' ) ) {
 
 	            return $this->has_regulated_exception_language( $this->transport_section );
 	        }
-
-        public function get_hazardous_description(): string {
-            $records = $this->get_transport_records();
-            foreach ( $records as $record ) {
-                if ( ! empty( $record['hazardous_description'] ) ) {
-                    return $record['hazardous_description'];
-                }
-            }
-
-            return '';
-        }
 
         public function get_hazardous_class_number(): string {
             $matrix = $this->parse_transport_matrix();
