@@ -262,6 +262,7 @@ if ( ! class_exists( 'JB_PDF_Transport_Extractor' ) ) {
 	                'shipping_class'         => $this->get_shipping_class(),
 	                'nmfc_code'              => $this->get_nmfc_code(),
 	                'hazardous_terms'        => $this->get_hazardous_terms(),
+	                'transport_section'      => '',
 	            );
 	        }
 
@@ -414,7 +415,12 @@ if ( ! class_exists( 'JB_PDF_Transport_Extractor' ) ) {
 	        }
 
 	        private function finalize_transport_record( array $record, string $context = '' ): array {
+	            $context = $this->normalize_whitespace( $context );
 	            $record['regulated_material'] = $this->is_transport_record_regulated( $record, $context );
+	            $record['transport_section'] = $context;
+	            if ( '' !== $context ) {
+	                $record['hazardous_terms'] = $this->match_hazardous_terms( $context );
+	            }
 	            return $record;
 	        }
 
@@ -530,7 +536,7 @@ if ( ! class_exists( 'JB_PDF_Transport_Extractor' ) ) {
         private function parse_inline_agency_status_records(): array {
             $records = array();
 
-            if ( ! preg_match_all( '/\b(DOT|TDG|IMDG|IATA|ICAO|ADR|RID|ADN|NOM)\b\s+(not regulated|not restricted|non[-\s]?regulated|limited quantity|consumer commodity|orm-d|id\s*8000)\b/i', $this->transport_section, $matches, PREG_SET_ORDER ) ) {
+            if ( ! preg_match_all( '/\b(DOT|TDG|IMDG|IATA|ICAO|ADR|RID|ADN|NOM)\b\s+(not regulated|not restricted|non[-\s]?regulated|limited quantity|consumer commodity|orm-d|id\s*8000)\b/i', $this->transport_section, $matches, PREG_SET_ORDER ) || count( $matches ) < 2 ) {
                 return $records;
             }
 
