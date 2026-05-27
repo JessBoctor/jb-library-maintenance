@@ -308,9 +308,70 @@ if ( ! class_exists( 'JB_PDF_Transport_Extractor' ) ) {
 	            return '';
 	        }
 
-        private function apply_transport_value_to_record( array $record, string $label, string $value ): array {
-            $label = strtolower( $label );
-            $value = $this->normalize_whitespace( $value );
+	        private function has_non_regulated_language( string $text ): bool {
+	            if ( '' === trim( $text ) ) {
+	                return false;
+	            }
+
+	            $patterns = array(
+	                '/\bnot\s+(?:regulated|restricted)\b/i',
+	                '/\bnon[-\s]?regulated\b/i',
+	                '/\bnot\s+applicable\s*\/\s*not\s+regulated\b/i',
+	                '/\bnot\s+classified(?:\s+as\s+hazardous)?(?:\s+for\s+transport)?\b/i',
+	                '/\b(?:no|not)\s+dangerous\s+goods?\b/i',
+	                '/\bno\s+dangerous\s+good\s+in\s+sense\s+of\s+(?:these\s+)?transport\s+regulations\b/i',
+	            );
+
+	            foreach ( $patterns as $pattern ) {
+	                if ( preg_match( $pattern, $text ) ) {
+	                    return true;
+	                }
+	            }
+
+	            return false;
+	        }
+
+	        private function has_regulated_exception_language( string $text ): bool {
+	            if ( '' === trim( $text ) ) {
+	                return false;
+	            }
+
+	            return (bool) preg_match( '/\b(?:limited\s+quantity|consumer\s+commodity|orm-d|id\s*8000)\b/i', $text );
+	        }
+
+	        private function is_transport_record_regulated( array $record, string $context = '' ): bool {
+	            if ( ! empty( $record['un_code'] ) ) {
+	                return true;
+	            }
+
+	            $record_text = implode(
+	                ' ',
+	                array_filter(
+	                    array(
+	                        $record['hazardous_description'] ?? '',
+	                        $record['hazard_class'] ?? '',
+	                        $record['packing_group'] ?? '',
+	                        $record['hazardous_terms'] ?? '',
+	                        $context,
+	                    )
+	                )
+	            );
+
+	            if ( $this->has_non_regulated_language( $record_text ) ) {
+	                return false;
+	            }
+
+	            return $this->has_regulated_exception_language( $record_text );
+	        }
+
+	        private function finalize_transport_record( array $record, string $context = '' ): array {
+	            $record['regulated_material'] = $this->is_transport_record_regulated( $record, $context );
+	            return $record;
+	        }
+
+	        private function apply_transport_value_to_record( array $record, string $label, string $value ): array {
+	            $label = strtolower( $label );
+	            $value = $this->normalize_whitespace( $value );
 
 	            if ( preg_match( '/\b(un|un\/id|un\/na|id)\b/', $label ) ) {
 	                $record['un_code'] = $this->normalize_un_code( $value );
@@ -348,50 +409,54 @@ if ( ! class_exists( 'JB_PDF_Transport_Extractor' ) ) {
                     $record['transport_types'] = $agency_match['transport_types'] ?? $record['transport_types'];
                     $record['jurisdiction'] = $agency_match['jurisdiction'] ?? $record['jurisdiction'];
                     $record['un_code'] = $this->normalize_un_code( $matches[2] );
-                    $record['hazardous_description'] = $this->normalize_whitespace( $matches[3] );
-                    $record['hazard_class'] = $matches[4];
-                    $record['packing_group'] = ucfirst( strtolower( $matches[5] ) );
-                    $record['regulated_material'] = '' !== $record['un_code'];
-                    $records[] = $record;
-                }
-            }
+	                    $record['hazardous_description'] = $this->normalize_whitespace( $matches[3] );
+	                    $record['hazard_class'] = $matches[4];
+	                    $record['packing_group'] = ucfirst( strtolower( $matches[5] ) );
+	                    $records[] = $this->finalize_transport_record( $record, $line );
+	                }
+	            }
 
             return $records;
         }
 
-        private function parse_grouped_transport_records(): array {
-            $records = array();
-            $current_agency = '';
-            $current_record = array();
-            $lines = preg_split( '/[\r\n]+/', $this->transport_section );
+	        private function parse_grouped_transport_records(): array {
+	            $records = array();
+	            $current_agency = '';
+	            $current_record = array();
+	            $current_context = '';
+	            $lines = preg_split( '/[\r\n]+/', $this->transport_section );
 
-            foreach ( $lines as $line ) {
-                $line = $this->normalize_whitespace( $line );
-                if ( '' === $line ) {
+	            foreach ( $lines as $line ) {
+	                $line = $this->normalize_whitespace( $line );
+	                if ( '' === $line ) {
                     continue;
                 }
 
-                $agency_match = $this->get_agency_match_from_line( $line );
-                if ( ! empty( $agency_match ) && $agency_match['agency_alias_position'] <= 25 ) {
-                    if ( ! empty( $current_record ) ) {
-                        $current_record['regulated_material'] = '' !== $current_record['un_code'];
-                        $records[] = $current_record;
-                    }
-                    $current_agency = $agency_match['agency'];
-                    $current_record = $this->get_empty_transport_record( $current_agency );
-                    $current_record['agency_alias'] = $agency_match['agency_alias'];
-                    $current_record['transport_types'] = $agency_match['transport_types'];
-                    $current_record['jurisdiction'] = $agency_match['jurisdiction'];
+	                $agency_match = $this->get_agency_match_from_line( $line );
+	                if ( ! empty( $agency_match ) && $agency_match['agency_alias_position'] <= 25 ) {
+	                    if ( ! empty( $current_record ) ) {
+	                        $records[] = $this->finalize_transport_record( $current_record, $current_context );
+	                    }
+	                    $current_agency = $agency_match['agency'];
+	                    $current_record = $this->get_empty_transport_record( $current_agency );
+	                    $current_context = $line;
+	                    $current_record['agency_alias'] = $agency_match['agency_alias'];
+	                    $current_record['transport_types'] = $agency_match['transport_types'];
+	                    $current_record['jurisdiction'] = $agency_match['jurisdiction'];
 
-                    $line = trim( preg_replace( '/^.*?' . preg_quote( $agency_match['agency_alias'], '/' ) . '\b[^\r\n]*/i', '', $line ) );
-                    if ( '' === $line ) {
-                        continue;
-                    }
-                }
+	                    $line = trim( preg_replace( '/^.*?' . preg_quote( $agency_match['agency_alias'], '/' ) . '\b\s*[:\-\/]?\s*/i', '', $line, 1 ) );
+	                    if ( '' === $line ) {
+	                        continue;
+	                    }
+	                }
 
-                if ( empty( $current_record ) ) {
-                    continue;
-                }
+	                if ( empty( $current_record ) ) {
+	                    continue;
+	                }
+
+	                if ( false === strpos( $current_context, $line ) ) {
+	                    $current_context .= ' ' . $line;
+	                }
 
                 if ( preg_match( '/^(UN\/ID no|UN\/NA NUMBER|UN Number|UN number|UN ID|UN\/ID|UN)\s*:?\s*(.+)$/i', $line, $matches ) ) {
                     $current_record = $this->apply_transport_value_to_record( $current_record, $matches[1], $matches[2] );
@@ -424,10 +489,9 @@ if ( ! class_exists( 'JB_PDF_Transport_Extractor' ) ) {
 	                }
 	            }
 
-            if ( ! empty( $current_record ) ) {
-                $current_record['regulated_material'] = '' !== $current_record['un_code'];
-                $records[] = $current_record;
-            }
+	            if ( ! empty( $current_record ) ) {
+	                $records[] = $this->finalize_transport_record( $current_record, $current_context );
+	            }
 
             return $records;
         }
@@ -458,7 +522,7 @@ if ( ! class_exists( 'JB_PDF_Transport_Extractor' ) ) {
                 }
             }
 
-            $record['regulated_material'] = '' !== $record['un_code'];
+	            $record = $this->finalize_transport_record( $record, $this->transport_section );
 
             if (
                 '' === $record['un_code']
@@ -842,13 +906,28 @@ if ( ! class_exists( 'JB_PDF_Transport_Extractor' ) ) {
             return $un_number ? 'UN' . $un_number : '';
         }
 
-        public function is_regulated_material(): bool {
-            if ( empty( $this->transport_section ) ) {
-                return false;
-            }
+	        public function is_regulated_material(): bool {
+	            if ( empty( $this->transport_section ) ) {
+	                return false;
+	            }
 
-            return $this->get_un_code() !== '';
-        }
+	            $records = $this->get_transport_records();
+	            foreach ( $records as $record ) {
+	                if ( ! empty( $record['regulated_material'] ) ) {
+	                    return true;
+	                }
+	            }
+
+	            if ( '' !== $this->get_un_code() ) {
+	                return true;
+	            }
+
+	            if ( $this->has_non_regulated_language( $this->transport_section ) ) {
+	                return false;
+	            }
+
+	            return $this->has_regulated_exception_language( $this->transport_section );
+	        }
 
         public function get_hazardous_description(): string {
             $records = $this->get_transport_records();
