@@ -363,6 +363,24 @@ if ( ! class_exists( 'JB_PDF_Transport_Extractor' ) ) {
 	            return $record;
 	        }
 
+	        private function looks_like_packing_group( string $value ): bool {
+	            return (bool) preg_match( '/^\s*(?:I{1,3}|1|2|3|not\s+applicable|n\/a|none)\b/i', $value );
+	        }
+
+	        private function looks_like_freight_class( string $value ): bool {
+	            return (bool) preg_match( '/^\s*(?:50|55|60|65|70|77\.5|85|92\.5|100|110|125|150|175|200|250|300|400|500)\b/i', $value );
+	        }
+
+	        private function apply_ambiguous_shipping_group_to_record( array $record, string $value ): array {
+	            if ( $this->looks_like_packing_group( $value ) ) {
+	                $record['packing_group'] = $value;
+	            } elseif ( $this->looks_like_freight_class( $value ) ) {
+	                $record['shipping_class'] = $value;
+	            }
+
+	            return $record;
+	        }
+
 	        private function apply_transport_value_to_record( array $record, string $label, string $value ): array {
 	            $label = strtolower( $label );
 	            $value = $this->normalize_whitespace( $value );
@@ -377,7 +395,9 @@ if ( ! class_exists( 'JB_PDF_Transport_Extractor' ) ) {
 	                }
 	            } elseif ( preg_match( '/packing group|pg\b/', $label ) ) {
 	                $record['packing_group'] = $value;
-	            } elseif ( preg_match( '/\b(?:shipping|ship|shp|freight)\s*(?:class|group)\b/', $label ) ) {
+	            } elseif ( preg_match( '/\b(?:shipping|ship|shp)\s*group\b/', $label ) ) {
+	                $record = $this->apply_ambiguous_shipping_group_to_record( $record, $value );
+	            } elseif ( preg_match( '/\b(?:shipping|ship|shp|freight)\s*class\b/', $label ) ) {
 	                $record['shipping_class'] = $value;
 	            } elseif ( preg_match( '/\bnmfc\b/', $label ) ) {
 	                $record['nmfc_code'] = $this->normalize_nmfc_code( $value );
@@ -472,7 +492,7 @@ if ( ! class_exists( 'JB_PDF_Transport_Extractor' ) ) {
 	                    continue;
 	                }
 
-	                if ( preg_match( '/^((?:Shipping|Ship|SHP|Freight)\s*(?:Class|Group))\s*:?\s*(.+)$/i', $line, $matches ) ) {
+	                if ( preg_match( '/^((?:Shipping|Ship|SHP)\s*Group|(?:Shipping|Ship|SHP|Freight)\s*Class)\s*:?\s*(.+)$/i', $line, $matches ) ) {
 	                    $current_record = $this->apply_transport_value_to_record( $current_record, $matches[1], $matches[2] );
 	                    continue;
 	                }
@@ -498,7 +518,8 @@ if ( ! class_exists( 'JB_PDF_Transport_Extractor' ) ) {
 	                'shipping_name' => '/\b(?:UN Proper Shipping Name|Proper Shipping Name|Shipping Name|Description)\b\s*:?\s*([^\n\r]+)/i',
 	                'hazard_class' => '/\b(?:Transport Hazard Class|Hazard class|Primary Hazard Class\/Division)\b\s*:?\s*([^\n\r]+)/i',
 	                'packing_group' => '/\bPacking Group\b\s*:?\s*([^\n\r]+)/i',
-	                'shipping_class' => '/\b(?:(?:Shipping|Ship|SHP|Freight)\s*(?:Class|Group))\b\s*:?\s*([^\n\r]+)/i',
+	                'shipping_class' => '/\b(?:Shipping|Ship|SHP|Freight)\s*Class\b\s*:?\s*([^\n\r]+)/i',
+	                'ambiguous_shipping_group' => '/\b(?:Shipping|Ship|SHP)\s*Group\b\s*:?\s*([^\n\r]+)/i',
 	                'nmfc_code' => '/\bNMFC(?:\s*(?:Number|No\.?|Code|#))?\b\s*:?\s*([^\n\r]+)/i',
 	            );
 
@@ -508,6 +529,8 @@ if ( ! class_exists( 'JB_PDF_Transport_Extractor' ) ) {
 	                        $record[ $field ] = $this->normalize_un_code( $matches[1] );
 	                    } elseif ( 'nmfc_code' === $field ) {
 	                        $record[ $field ] = $this->normalize_nmfc_code( $matches[1] );
+	                    } elseif ( 'ambiguous_shipping_group' === $field ) {
+	                        $record = $this->apply_ambiguous_shipping_group_to_record( $record, $this->normalize_whitespace( $matches[1] ) );
 	                    } elseif ( 'hazard_class' === $field && preg_match( '/\b(\d+(?:\.\d+)?)\b/', $matches[1], $class_matches ) ) {
 	                        $record[ $field ] = $class_matches[1];
 	                    } else {
@@ -1016,7 +1039,7 @@ if ( ! class_exists( 'JB_PDF_Transport_Extractor' ) ) {
 
 	        public function get_shipping_class(): string {
 	            $class = $this->extract_regex_value(
-	                '/\b(?:shipping|ship|shp|freight)\s*(?:class|group)\b\s*:?\s*([^\n\r,;]+)/i',
+	                '/\b(?:shipping|ship|shp|freight)\s*class\b\s*:?\s*([^\n\r,;]+)/i',
 	                $this->transport_section
 	            );
 
