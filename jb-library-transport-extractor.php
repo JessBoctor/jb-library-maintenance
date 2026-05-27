@@ -1,9 +1,23 @@
 <?php
 if ( ! class_exists( 'JB_PDF_Transport_Extractor' ) ) {
+    /**
+     * Extracts Section 14 transportation details from SDS text.
+     *
+     * The CSV export is built from get_transport_records(), which returns one
+     * row per detected regulatory agency when the SDS separates DOT/IATA/IMDG/etc.
+     */
     class JB_PDF_Transport_Extractor {
         private string $cleaned_text = '';
         private string $transport_section = '';
 
+        /**
+         * Regulatory agency aliases plus the transport modes each agency covers.
+         *
+         * These aliases are used to split one SDS transportation section into
+         * agency-specific CSV rows.
+         *
+         * @var array<string,array{aliases:array<int,string>,transport_types:array<int,string>,jurisdiction:string}>
+         */
         private static $AGENCY_MAP = array(
             'DOT' => array(
                 'aliases' => array(
@@ -95,9 +109,13 @@ if ( ! class_exists( 'JB_PDF_Transport_Extractor' ) ) {
         );
 
 	        /**
-	         * Single-word terms to find useful hazard descriptors in the transport section.
+	         * Single-word terms used as a fallback shipping-name clue.
 	         *
-	         * @var array
+	         * These are matched only inside the transportation section. The matcher
+	         * keeps the full word that contains the term, so "gas" can return
+	         * "gases" and "methylpentane" can be captured from a longer phrase.
+	         *
+	         * @var array<int,string>
 	         */
 	        private static $HAZARDOUS_TERMS = array(
 	            'acetone',
@@ -225,6 +243,9 @@ if ( ! class_exists( 'JB_PDF_Transport_Extractor' ) ) {
             return substr( $this->cleaned_text, $transport_pos, $length );
         }
 
+        /**
+         * Create a normalized row shape before agency-specific values are filled.
+         */
         private function get_empty_transport_record( string $agency = 'GENERIC' ): array {
             $metadata = $this->get_agency_metadata( $agency );
 
@@ -244,6 +265,9 @@ if ( ! class_exists( 'JB_PDF_Transport_Extractor' ) ) {
 	            );
 	        }
 
+        /**
+         * Agency helpers.
+         */
         private function get_agency_metadata( string $agency ): array {
             if ( isset( self::$AGENCY_MAP[ $agency ] ) ) {
                 return array(
@@ -282,6 +306,9 @@ if ( ! class_exists( 'JB_PDF_Transport_Extractor' ) ) {
             return array();
         }
 
+	        /**
+	         * Value normalizers.
+	         */
 	        private function normalize_un_code( string $value ): string {
 	            if ( preg_match( '/\b(UN|ID)\s*([0-9]{3,4})\b/i', $value, $matches ) ) {
 	                return strtoupper( $matches[1] ) . $matches[2];
@@ -302,6 +329,13 @@ if ( ! class_exists( 'JB_PDF_Transport_Extractor' ) ) {
 	            return '';
 	        }
 
+	        /**
+	         * Regulated-material helpers.
+	         *
+	         * A UN/ID code is treated as regulated first. Explicit "not regulated"
+	         * language can set the row false, while limited quantity / consumer
+	         * commodity language is treated as a regulated exception.
+	         */
 	        private function has_non_regulated_language( string $text ): bool {
 	            if ( '' === trim( $text ) ) {
 	                return false;
@@ -363,6 +397,13 @@ if ( ! class_exists( 'JB_PDF_Transport_Extractor' ) ) {
 	            return $record;
 	        }
 
+	        /**
+	         * Packing group and freight class helpers.
+	         *
+	         * SDS files sometimes say "shipping group" when they mean packing group,
+	         * but freight class values are numeric NMFC-style classes. These helpers
+	         * route ambiguous values to the least surprising column.
+	         */
 	        private function looks_like_packing_group( string $value ): bool {
 	            return (bool) preg_match( '/^\s*(?:I{1,3}|1|2|3|not\s+applicable|n\/a|none)\b/i', $value );
 	        }
@@ -427,6 +468,11 @@ if ( ! class_exists( 'JB_PDF_Transport_Extractor' ) ) {
 	            return $record;
 	        }
 
+        /**
+         * Parser 1: compact table rows.
+         *
+         * Handles lines like "DOT UN1993 Flammable liquids 3 II".
+         */
         private function parse_table_transport_records(): array {
             $records = array();
             $lines = preg_split( '/[\r\n]+/', $this->transport_section );
@@ -454,6 +500,12 @@ if ( ! class_exists( 'JB_PDF_Transport_Extractor' ) ) {
             return $records;
         }
 
+	        /**
+	         * Parser 2: agency-grouped sections.
+	         *
+	         * Handles SDS sections where each agency gets its own block or line,
+	         * such as DOT, IATA, and IMDG with separate values under each label.
+	         */
 	        private function parse_grouped_transport_records(): array {
 	            $records = array();
 	            $current_agency = '';
@@ -531,6 +583,13 @@ if ( ! class_exists( 'JB_PDF_Transport_Extractor' ) ) {
             return $records;
         }
 
+        /**
+         * Parser 3: flat label/value sections.
+         *
+         * Handles SDS sections that do not identify a regulatory agency and only
+         * provide one set of labels like UN number, proper shipping name, class,
+         * packing group, shipping class, and NMFC.
+         */
         private function parse_flat_transport_record(): array {
             $record = $this->get_empty_transport_record();
 
@@ -579,6 +638,12 @@ if ( ! class_exists( 'JB_PDF_Transport_Extractor' ) ) {
             return array( $record );
         }
 
+        /**
+         * Return the best available transportation rows for CSV export.
+         *
+         * The parsers run from most structured to least structured:
+         * table rows, grouped agency blocks, then one generic flat record.
+         */
         public function get_transport_records(): array {
             if ( empty( $this->transport_section ) ) {
                 return array();
@@ -597,6 +662,12 @@ if ( ! class_exists( 'JB_PDF_Transport_Extractor' ) ) {
             return $this->parse_flat_transport_record();
         }
 
+        /**
+         * Legacy summary parser used by the single-value getter methods below.
+         *
+         * The transport CSV should prefer get_transport_records(), but these
+         * getters still provide a compact "best value" summary for older callers.
+         */
         private function parse_transport_matrix(): array {
             $section = $this->transport_section;
             $result = array( 'by_standard' => array() );
@@ -794,6 +865,10 @@ if ( ! class_exists( 'JB_PDF_Transport_Extractor' ) ) {
             return $result;
         }
 
+        /**
+         * Legacy helper for SDS sections that list several agency labels before a
+         * sequence of proper shipping names.
+         */
         private function parse_shipping_name_matrix(): array {
             $section = $this->transport_section;
             if ( empty( $section ) ) {
@@ -864,6 +939,12 @@ if ( ! class_exists( 'JB_PDF_Transport_Extractor' ) ) {
             return '';
         }
 
+	        /**
+	         * Match fallback hazard terms and return unique phrases.
+	         *
+	         * Adjacent matched words are combined, so "inert gases" is returned as
+	         * a phrase instead of separate "inert" and "gases" values.
+	         */
 	        private function match_hazardous_terms( string $text ): string {
 	            if ( empty( $text ) ) {
 	                return '';
