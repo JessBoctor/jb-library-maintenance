@@ -60,3 +60,58 @@ A log of files that failed to import should be printed. If you aren’t sure if 
 `wp check-pdf-import-status`
 
 It will print any files which do not have corresponding `dlp_document` or `attachment` posts.
+
+## Optional PDF text fallback hook
+The PDF scraper first tries to read PDF text with the bundled PHP PDF parser. Some SDS files do not parse cleanly with that parser, so the scraper includes an optional hook for a local fallback parser:
+
+`jb_library_pdf_scraper_fallback_text`
+
+This hook is intended for local maintenance runs only. It lets a developer provide PDF text from a machine-specific tool without committing that tool path or shell command to the repository.
+
+### Safety gates
+The fallback hook will only run when both of these are true:
+
+- The plugin is running under WP-CLI.
+- `JB_LIBRARY_ENABLE_PDF_TEXT_FALLBACK` is set to `true`.
+
+This prevents the fallback from running during normal web requests on a webhost. The local fallback file is also ignored by git.
+
+### Local setup
+Create this file locally:
+
+`wp-content/plugins/jb-library-maintenance/jb-library-pdf-fallback-parser.local.php`
+
+Enable the fallback for your local WP-CLI run by defining this before the plugin loads, usually in local `wp-config.php`:
+
+```php
+define( 'JB_LIBRARY_ENABLE_PDF_TEXT_FALLBACK', true );
+```
+
+Then register a callback:
+
+```php
+<?php
+if ( ! defined( 'WP_CLI' ) || ! WP_CLI ) {
+    return;
+}
+
+if ( ! defined( 'JB_LIBRARY_ENABLE_PDF_TEXT_FALLBACK' ) || ! JB_LIBRARY_ENABLE_PDF_TEXT_FALLBACK ) {
+    return;
+}
+
+add_filter(
+    'jb_library_pdf_scraper_fallback_text',
+    function ( $fallback_text, string $file_path ) {
+        if ( is_string( $fallback_text ) && trim( $fallback_text ) !== '' ) {
+            return $fallback_text;
+        }
+
+        // Run your local parser here and return extracted text.
+        return null;
+    },
+    10,
+    2
+);
+```
+
+Do not commit `*.local.php` files or generated `*.parsed.json` files. They are local cache/integration files only.
