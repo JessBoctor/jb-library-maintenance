@@ -64,6 +64,45 @@ $cases = array(
             ),
         ),
     ),
+    'agency paragraph shipping description is parsed' => array(
+        'text' => '14. Transport information DOT (USA) Class 9, Packing Group III when material is shipped in quantities in one package at or above the Reportable Quantity and when no other hazard class applies; otherwise, not regulated. Reportable Quantity: 4.5 kg (dibutyl phthalate) Marine pollutant.: dibutyl phthalate Possible Shipping Description(s): not regulated UN 3082 Environmentally hazardous substances, liquid, n.o.s. (dibutyl phthalate) 9 III Sea - IMDG (International Maritime Dangerous Goods) Marine pollutant.: (dibutyl phthalate) Possible Shipping Description(s): UN 3082 ENVIRONMENTALLY HAZARDOUS SUBSTANCE, LIQUID, N.O.S. (dibutyl phthalate) 9 III 15. Regulatory information',
+        'expected_records' => array(
+            array(
+                'agency' => 'DOT',
+                'un_code' => 'UN3082',
+                'shipping_name' => 'Environmentally hazardous substances, liquid, n.o.s. (dibutyl phthalate)',
+                'hazard_class' => '9',
+                'packing_group' => 'III',
+                'regulated_material' => true,
+            ),
+        ),
+    ),
+    'single line shipping description is parsed' => array(
+        'text' => '14. Transport information DOT (Department of Transportation) : UN3082, Environmentally hazardous substances, liquid, n.o.s., (BIS(2-ETHYLHEXYL) PHTHALATE), 9, lll 15. Regulatory information',
+        'expected_records' => array(
+            array(
+                'agency' => 'DOT',
+                'un_code' => 'UN3082',
+                'shipping_name' => 'Environmentally hazardous substances, liquid, n.o.s., (BIS(2-ETHYLHEXYL) PHTHALATE)',
+                'hazard_class' => '9',
+                'packing_group' => 'III',
+                'regulated_material' => true,
+            ),
+        ),
+    ),
+    'single line NA combustible liquid description is parsed' => array(
+        'text' => '14. Transport information DOT (Department of Transportation): NA1993, Combustible liquid, n.o.s., (PROPANOL, 1(OR 2)-(2-METHOXYMETHYLETHOXY) ), CBL, III 15. Regulatory information',
+        'expected_records' => array(
+            array(
+                'agency' => 'DOT',
+                'un_code' => 'NA1993',
+                'shipping_name' => 'Combustible liquid, n.o.s., (PROPANOL, 1(OR 2)-(2-METHOXYMETHYLETHOXY) )',
+                'hazard_class' => 'CBL',
+                'packing_group' => 'III',
+                'regulated_material' => true,
+            ),
+        ),
+    ),
 );
 
 $errors = array();

@@ -332,11 +332,89 @@ if ( ! class_exists( 'JB_PDF_Transport_Extractor' ) ) {
 	         * Value normalizers.
 	         */
 	        private function normalize_un_code( string $value ): string {
-	            if ( preg_match( '/\b(UN|ID)\s*([0-9]{3,4})\b/i', $value, $matches ) ) {
+	            if ( preg_match( '/\b(UN|ID|NA)\s*([0-9]{3,4})\b/i', $value, $matches ) ) {
 	                return strtoupper( $matches[1] ) . $matches[2];
 	            }
 
 	            return '';
+	        }
+
+	        private function normalize_packing_group_ocr_text( string $value ): string {
+	            return strtr( $value, array( 'l' => 'I', 'L' => 'I' ) );
+	        }
+
+	        private function apply_single_line_shipping_description_to_record( array $record, string $text ): array {
+	            if (
+	                ! preg_match(
+	                    '/\b((?:UN|ID|NA)\s*\d{3,4})\s*,\s*(.+),\s*([A-Z0-9.]+)\s*,\s*(?:PG\s*)?([A-ZILl1]{1,3}|[123])\b/i',
+	                    $text,
+	                    $matches
+	                )
+	            ) {
+	                return $record;
+	            }
+
+	            if ( empty( $record['un_code'] ) ) {
+	                $record['un_code'] = $this->normalize_un_code( $matches[1] );
+	            }
+
+	            if ( empty( $record['shipping_name'] ) ) {
+	                $record['shipping_name'] = $this->normalize_whitespace( $matches[2] );
+	            }
+
+	            if ( empty( $record['hazard_class'] ) ) {
+	                $record['hazard_class'] = strtoupper( $matches[3] );
+	            }
+
+	            if ( empty( $record['packing_group'] ) ) {
+	                $record['packing_group'] = $this->normalize_packing_group( $matches[4] );
+	            }
+
+	            return $record;
+	        }
+
+	        private function get_shipping_description_from_text( string $text ): string {
+	            if ( ! preg_match( '/\bPossible Shipping Description(?:\(s\))?\s*:?\s*(.+)$/i', $text, $matches ) ) {
+	                return '';
+	            }
+
+	            $description = $this->normalize_whitespace( $matches[1] );
+	            $description = preg_replace( '/^(?:not regulated|not restricted)\s+/i', '', $description );
+	            $description = preg_replace( '/\b(?:Sea|Air|Land|Ground)\s*-\s+.*$/i', '', $description );
+	            $description = trim( $description );
+
+	            if ( ! preg_match( '/\b(?:UN|ID|NA)\s*\d{3,4}\b/i', $description ) ) {
+	                return '';
+	            }
+
+	            return $description;
+	        }
+
+	        private function apply_shipping_description_to_record( array $record, string $text ): array {
+	            $description = $this->get_shipping_description_from_text( $text );
+	            if ( '' === $description ) {
+	                return $record;
+	            }
+
+	            if ( empty( $record['un_code'] ) ) {
+	                $record['un_code'] = $this->normalize_un_code( $description );
+	            }
+
+	            if ( empty( $record['hazard_class'] ) && preg_match( '/\s(\d+(?:\.\d+)?)\s+(?:I{1,3}|1|2|3)\s*$/i', $description, $matches ) ) {
+	                $record['hazard_class'] = $matches[1];
+	            }
+
+	            if ( empty( $record['packing_group'] ) && preg_match( '/\s(I{1,3}|1|2|3)\s*$/i', $description, $matches ) ) {
+	                $record['packing_group'] = $this->normalize_packing_group( $matches[1] );
+	            }
+
+	            if ( empty( $record['shipping_name'] ) ) {
+	                $shipping_name = preg_replace( '/^\s*(?:UN|ID|NA)\s*\d{3,4}\s+/i', '', $description );
+	                $shipping_name = preg_replace( '/\s+\d+(?:\.\d+)?\s+(?:I{1,3}|1|2|3)\s*$/i', '', $shipping_name );
+	                $record['shipping_name'] = $this->normalize_whitespace( $shipping_name );
+	            }
+
+	            return $record;
 	        }
 
 	        private function normalize_nmfc_code( string $value ): string {
@@ -416,6 +494,19 @@ if ( ! class_exists( 'JB_PDF_Transport_Extractor' ) ) {
 
 	        private function finalize_transport_record( array $record, string $context = '' ): array {
 	            $context = $this->normalize_whitespace( $context );
+	            if ( '' !== $context ) {
+	                $record = $this->apply_single_line_shipping_description_to_record( $record, $context );
+	                $record = $this->apply_shipping_description_to_record( $record, $context );
+
+	                if ( empty( $record['hazard_class'] ) && preg_match( '/\bClass\s+(\d+(?:\.\d+)?)/i', $context, $matches ) ) {
+	                    $record['hazard_class'] = $matches[1];
+	                }
+
+	                if ( empty( $record['packing_group'] ) && preg_match( '/\bPacking Group\s+(not applicable|n\/a|I{1,3}|1|2|3)\b/i', $context, $matches ) ) {
+	                    $record['packing_group'] = $this->normalize_packing_group( $matches[1] );
+	                }
+	            }
+
 	            $record['regulated_material'] = $this->is_transport_record_regulated( $record, $context );
 	            $record['transport_section'] = $context;
 	            if ( '' !== $context ) {
@@ -449,7 +540,8 @@ if ( ! class_exists( 'JB_PDF_Transport_Extractor' ) ) {
 	                return 'None';
 	            }
 
-	            if ( preg_match( '/\b(?:PG|Packing\s*Group)?\s*(I{1,3}|1|2|3)\b/i', $value, $matches ) ) {
+	            $value_for_roman_match = $this->normalize_packing_group_ocr_text( $value );
+	            if ( preg_match( '/\b(?:PG|Packing\s*Group)?\s*(I{1,3}|1|2|3)\b/i', $value_for_roman_match, $matches ) ) {
 	                return strtoupper( $matches[1] );
 	            }
 
