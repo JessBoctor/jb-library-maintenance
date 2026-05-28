@@ -260,7 +260,6 @@ if ( ! class_exists( 'JB_PDF_Transport_Extractor' ) ) {
 	                'hazard_class'           => '',
 	                'packing_group'          => '',
 	                'shipping_class'         => $this->get_shipping_class(),
-	                'nmfc_code'              => $this->get_nmfc_code(),
 	                'hazardous_terms'        => $this->get_hazardous_terms(),
 	                'transport_section'      => '',
 	            );
@@ -417,18 +416,6 @@ if ( ! class_exists( 'JB_PDF_Transport_Extractor' ) ) {
 	            return $record;
 	        }
 
-	        private function normalize_nmfc_code( string $value ): string {
-	            if ( preg_match( '/\bNMFC\b[^A-Z0-9]*([0-9]{4,6}[A-Z0-9-]*)\b/i', $value, $matches ) ) {
-	                return strtoupper( $matches[1] );
-	            }
-
-	            if ( preg_match( '/\b([0-9]{4,6}[A-Z0-9-]*)\b/i', $value, $matches ) ) {
-	                return strtoupper( $matches[1] );
-	            }
-
-	            return '';
-	        }
-
 	        /**
 	         * Regulated-material helpers.
 	         *
@@ -519,7 +506,7 @@ if ( ! class_exists( 'JB_PDF_Transport_Extractor' ) ) {
 	         * Packing group and freight class helpers.
 	         *
 	         * SDS files sometimes say "shipping group" when they mean packing group,
-	         * but freight class values are numeric NMFC-style classes. These helpers
+	         * but freight class values are numeric class values. These helpers
 	         * route ambiguous values to the least surprising column.
 	         */
 	        private function looks_like_packing_group( string $value ): bool {
@@ -580,8 +567,6 @@ if ( ! class_exists( 'JB_PDF_Transport_Extractor' ) ) {
 	                $record = $this->apply_ambiguous_shipping_group_to_record( $record, $value );
 	            } elseif ( preg_match( '/\b(?:shipping|ship|shp|freight)\s*class\b/', $label ) ) {
 	                $record['shipping_class'] = $value;
-	            } elseif ( preg_match( '/\bnmfc\b/', $label ) ) {
-	                $record['nmfc_code'] = $this->normalize_nmfc_code( $value );
 	            }
 
 	            return $record;
@@ -716,10 +701,6 @@ if ( ! class_exists( 'JB_PDF_Transport_Extractor' ) ) {
 	                    continue;
 	                }
 
-	                if ( preg_match( '/^(NMFC(?:\s*(?:Number|No\.?|Code|#))?)\s*:?\s*(.+)$/i', $line, $matches ) ) {
-	                    $current_record = $this->apply_transport_value_to_record( $current_record, $matches[1], $matches[2] );
-	                    continue;
-	                }
 	            }
 
 	            if ( ! empty( $current_record ) ) {
@@ -734,7 +715,7 @@ if ( ! class_exists( 'JB_PDF_Transport_Extractor' ) ) {
          *
          * Handles SDS sections that do not identify a regulatory agency and only
          * provide one set of labels like UN number, proper shipping name, class,
-         * packing group, shipping class, and NMFC.
+         * packing group, and shipping class.
          */
         private function parse_flat_transport_record(): array {
             $record = $this->get_empty_transport_record();
@@ -746,15 +727,12 @@ if ( ! class_exists( 'JB_PDF_Transport_Extractor' ) ) {
 	                'packing_group' => '/\b(?:Packing Group|PG)\b\s*:?\s*([^\n\r]+)/i',
 	                'shipping_class' => '/\b(?:Shipping|Ship|SHP|Freight)\s*Class\b\s*:?\s*([^\n\r]+)/i',
 	                'ambiguous_shipping_group' => '/\b(?:Shipping|Ship|SHP)\s*Group\b\s*:?\s*([^\n\r]+)/i',
-	                'nmfc_code' => '/\bNMFC(?:\s*(?:Number|No\.?|Code|#))?\b\s*:?\s*([^\n\r]+)/i',
 	            );
 
             foreach ( $label_patterns as $field => $pattern ) {
                 if ( preg_match( $pattern, $this->transport_section, $matches ) ) {
 	                    if ( 'un_code' === $field ) {
 	                        $record[ $field ] = $this->normalize_un_code( $matches[1] );
-	                    } elseif ( 'nmfc_code' === $field ) {
-	                        $record[ $field ] = $this->normalize_nmfc_code( $matches[1] );
 	                    } elseif ( 'ambiguous_shipping_group' === $field ) {
 	                        $record = $this->apply_ambiguous_shipping_group_to_record( $record, $this->normalize_whitespace( $matches[1] ) );
 	                    } elseif ( 'hazard_class' === $field && preg_match( '/\b(\d+(?:\.\d+)?)\b/', $matches[1], $class_matches ) ) {
@@ -775,7 +753,6 @@ if ( ! class_exists( 'JB_PDF_Transport_Extractor' ) ) {
 	                && '' === $record['hazard_class']
 	                && '' === $record['packing_group']
 	                && '' === $record['shipping_class']
-	                && '' === $record['nmfc_code']
 	                && '' === $record['hazardous_terms']
 	            ) {
                 return array();
@@ -882,10 +859,6 @@ if ( ! class_exists( 'JB_PDF_Transport_Extractor' ) ) {
 	            );
 
 	            return $class ? strtoupper( $this->normalize_whitespace( $class ) ) : '';
-	        }
-
-	        public function get_nmfc_code(): string {
-	            return $this->normalize_nmfc_code( $this->transport_section );
 	        }
 
         public function get_section(): string {
