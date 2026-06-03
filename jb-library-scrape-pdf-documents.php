@@ -228,6 +228,15 @@ if ( ! class_exists( 'JB_PDF_Scraper' ) ) {
                 return $this->is_pdf_readable;
             }
 
+            $this->is_pdf_readable = $this->cleaned_text_is_readable();
+            if ( ! $this->is_pdf_readable && $this->try_fallback_for_unreadable_text() ) {
+                $this->is_pdf_readable = $this->cleaned_text_is_readable();
+            }
+
+            return $this->is_pdf_readable;
+        }
+
+        private function cleaned_text_is_readable(): bool {
             $common_words = array( 'the', 'be', 'to', 'of', 'and' );
             $found_words = 0;
             foreach ( $common_words as $word ) {
@@ -236,8 +245,20 @@ if ( ! class_exists( 'JB_PDF_Scraper' ) ) {
                 }
             }
 
-            $this->is_pdf_readable = ( $found_words >= 2 );
-            return $this->is_pdf_readable;
+            return ( $found_words >= 2 );
+        }
+
+        private function try_fallback_for_unreadable_text(): bool {
+            $fallback_text = $this->run_pdf_text_fallback();
+            if ( ! is_string( $fallback_text ) || trim( $fallback_text ) === '' ) {
+                return false;
+            }
+
+            $this->parsed_text = $fallback_text;
+            $this->cleaned_text = '';
+            $this->clean_text();
+
+            return '' !== trim( $this->cleaned_text );
         }
     }
 }
