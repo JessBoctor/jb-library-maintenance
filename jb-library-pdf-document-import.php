@@ -5,19 +5,79 @@
  * Requires WP-CLI to be installed and activated.
  *
  * Usage:
- *   wp pdf-media-scrape-and-import [--for-real] [--batch-size=<number>] [--skip-confirmations]
+ *   wp pdf-media-scrape-and-import [--for-real] [--batch-size=<number>] [--skip-confirmations] [--stockcode-terms=<prefixes>]
  *
  * Examples:
  *   wp pdf-media-scrape-and-import --for-real
  *   wp pdf-media-scrape-and-import --skip-confirmations
+ *   wp pdf-media-scrape-and-import --subdirectory-path=SDS --stockcode-terms=20
  *
  * Run the above commands from the terminal.
  */
 
 defined( 'ABSPATH' ) or die( 'No script kiddies please!' );
 
+require_once __DIR__ . '/jb-library-transport-extractor.php';
+
 if ( ! defined( 'WP_CLI' ) || ! WP_CLI ) {
     return;
+}
+
+if ( ! function_exists( 'jb_library_get_stockcode_terms_filter' ) ) {
+    function jb_library_get_stockcode_terms_filter( array $assoc_args ): array {
+        if ( ! isset( $assoc_args['stockcode-terms'] ) || ! is_string( $assoc_args['stockcode-terms'] ) || '' === trim( $assoc_args['stockcode-terms'] ) ) {
+            return array();
+        }
+
+        $requested_prefixes = array_values(
+            array_filter(
+                array_map(
+                    function ( string $prefix ): string {
+                        return strtoupper( trim( $prefix ) );
+                    },
+                    explode( ',', $assoc_args['stockcode-terms'] )
+                )
+            )
+        );
+
+        $valid_prefixes = array_keys( JB_LIBRARY_STOCKCODE_PREFIX_TERMS );
+        $invalid_prefixes = array_diff( $requested_prefixes, $valid_prefixes );
+        if ( ! empty( $invalid_prefixes ) ) {
+            WP_CLI::error( 'Invalid --stockcode-terms value(s): ' . implode( ', ', $invalid_prefixes ) . '. Valid values: ' . implode( ', ', $valid_prefixes ) );
+        }
+
+        return $requested_prefixes;
+    }
+
+    function jb_library_filter_pdf_files_by_stockcode_terms( array $pdf_files, array $stockcode_prefixes ): array {
+        if ( empty( $stockcode_prefixes ) ) {
+            return $pdf_files;
+        }
+
+        return array_values(
+            array_filter(
+                $pdf_files,
+                function ( string $file_path ) use ( $stockcode_prefixes ): bool {
+                    $file_name = strtoupper( basename( $file_path ) );
+                    foreach ( $stockcode_prefixes as $prefix ) {
+                        if ( 0 === strpos( $file_name, $prefix ) ) {
+                            return true;
+                        }
+                    }
+
+                    return false;
+                }
+            )
+        );
+    }
+
+    function jb_library_stockcode_filter_label( array $stockcode_prefixes ): string {
+        if ( empty( $stockcode_prefixes ) ) {
+            return '';
+        }
+
+        return implode( ',', $stockcode_prefixes );
+    }
 }
 
 if ( ! class_exists( 'PDF_Media_Scrape_And_Import_Command' ) ) {
@@ -56,6 +116,13 @@ if ( ! class_exists( 'PDF_Media_Scrape_And_Import_Command' ) ) {
          * @var int
          */
         private $number_of_pdfs = 0;
+
+        /**
+         * Optional stockcode terms prefixes to process.
+         *
+         * @var array<int,string>
+         */
+        private $stockcode_prefixes = array();
 
         /**
          * Holds unique post titles to check for duplicates.
@@ -124,6 +191,11 @@ if ( ! class_exists( 'PDF_Media_Scrape_And_Import_Command' ) ) {
             }
             WP_CLI::log( "Batch size set to: {$this->batch_size}" );
 
+            $this->stockcode_prefixes = jb_library_get_stockcode_terms_filter( $assoc_args );
+            if ( ! empty( $this->stockcode_prefixes ) ) {
+                WP_CLI::log( 'Stockcode terms filter: ' . jb_library_stockcode_filter_label( $this->stockcode_prefixes ) );
+            }
+
             // Set the directory path
             $wp_uploads_dir = wp_get_upload_dir();
             $this->directory_path = $wp_uploads_dir['basedir'] . '/';
@@ -161,8 +233,10 @@ if ( ! class_exists( 'PDF_Media_Scrape_And_Import_Command' ) ) {
 
             // Get all PDF files in the directory
             $pdf_files = glob( $this->directory_path . '*.pdf' );
+            $total_pdf_files_before_filter = count( $pdf_files );
+            $pdf_files = jb_library_filter_pdf_files_by_stockcode_terms( $pdf_files, $this->stockcode_prefixes );
             if ( empty( $pdf_files ) ) {
-                WP_CLI::log( 'No PDF files found in the specified directory.' );
+                WP_CLI::log( 'No PDF files found in the specified directory' . ( ! empty( $this->stockcode_prefixes ) ? ' for stockcode terms ' . jb_library_stockcode_filter_label( $this->stockcode_prefixes ) : '' ) . '.' );
                 return;
             }
 
@@ -185,6 +259,9 @@ if ( ! class_exists( 'PDF_Media_Scrape_And_Import_Command' ) ) {
 
                 $this->number_of_pdfs = count( $pdf_files );
                 WP_CLI::log( "Found {$this->number_of_pdfs} PDF files in {$this->directory_path}." );
+                if ( ! empty( $this->stockcode_prefixes ) ) {
+                    WP_CLI::log( "Stockcode terms filter matched {$this->number_of_pdfs} of {$total_pdf_files_before_filter} PDF files." );
+                }
 
                 // Track whether we stopped early due to hitting the batch size
                 $stopped_due_to_batch = false;
@@ -491,6 +568,7 @@ if ( class_exists( 'PDF_Media_Scrape_And_Import_Command' ) ) {
      * - Arguments include:
      *  --subdirectory-path - Subdirectory path for the group of PDFs to be processed
      *  --batch-size - Number of PDF files to process in each batch (default: 100)
+     *  --stockcode-terms - Stockcode prefix terms to process, such as "20" or "20,CR"
      * @return void
      */
     function check_pdf_media_sds_content( array $args, array $assoc_args = []): void {
@@ -502,6 +580,11 @@ if ( class_exists( 'PDF_Media_Scrape_And_Import_Command' ) ) {
             $batch_size = 100;
         }
         WP_CLI::confirm( "Batch size set to: {$batch_size}. Continue?", 'yes' );
+
+        $stockcode_prefixes = jb_library_get_stockcode_terms_filter( $assoc_args );
+        if ( ! empty( $stockcode_prefixes ) ) {
+            WP_CLI::log( 'Stockcode terms filter: ' . jb_library_stockcode_filter_label( $stockcode_prefixes ) );
+        }
 
         // Set the directory path
         $wp_uploads_dir = wp_get_upload_dir();
@@ -517,6 +600,8 @@ if ( class_exists( 'PDF_Media_Scrape_And_Import_Command' ) ) {
 
         // Get all PDF files in the directory
         $pdf_files = glob( $directory_path . '*.pdf' );
+        $total_pdf_files_before_filter = count( $pdf_files );
+        $pdf_files = jb_library_filter_pdf_files_by_stockcode_terms( $pdf_files, $stockcode_prefixes );
 
         if ( ! empty( $pdf_files ) ) {
             $problem_files = 0;
@@ -524,6 +609,9 @@ if ( class_exists( 'PDF_Media_Scrape_And_Import_Command' ) ) {
             $unreadable_text = array();
             $missing_sds_info = array();
             $number_of_pdfs = count( $pdf_files );
+            if ( ! empty( $stockcode_prefixes ) ) {
+                WP_CLI::log( "Stockcode terms filter matched {$number_of_pdfs} of {$total_pdf_files_before_filter} PDF files." );
+            }
 
             $pdf_files_batch = array_slice( $pdf_files, 0, $batch_size, true );
 
@@ -615,6 +703,8 @@ if ( class_exists( 'PDF_Media_Scrape_And_Import_Command' ) ) {
      *  --subdirectory-path - Subdirectory path for the group of PDFs to be processed
      *  --batch-size - Number of PDF files to process in each batch (default: 100)
      *  --search-term - Term to search for in SDS files (default: transport)
+     *  --agencies - Agencies to export. Use "all" for every agency row, or a comma-separated preference list like "dot,generic" for one row per product.
+     *  --stockcode-terms - Stockcode prefix terms to process, such as "20" or "20,CR"
      * @return void
      */
     function check_pdf_media_transport_for_sds( array $args, array $assoc_args = []): void {
@@ -627,6 +717,11 @@ if ( class_exists( 'PDF_Media_Scrape_And_Import_Command' ) ) {
         }
         WP_CLI::confirm( "Batch size set to: {$batch_size}. Continue?", 'yes' );
 
+        $stockcode_prefixes = jb_library_get_stockcode_terms_filter( $assoc_args );
+        if ( ! empty( $stockcode_prefixes ) ) {
+            WP_CLI::log( 'Stockcode terms filter: ' . jb_library_stockcode_filter_label( $stockcode_prefixes ) );
+        }
+
         // Set whether to reset the transport scan tracking.
         $reset_tracking = isset( $assoc_args['reset-tracking'] );
         if ( $reset_tracking ) {
@@ -638,6 +733,30 @@ if ( class_exists( 'PDF_Media_Scrape_And_Import_Command' ) ) {
         if ( isset( $assoc_args['search-term'] ) && is_string( $assoc_args['search-term'] ) && trim( $assoc_args['search-term'] ) !== '' ) {
             $search_term = trim( $assoc_args['search-term'] );
         }
+
+        // Set agency export mode. "all" keeps every agency row. A preference list
+        // like "dot,generic" exports one row per product using the first match.
+        $agency_filter_raw = 'all';
+        if ( isset( $assoc_args['agencies'] ) && is_string( $assoc_args['agencies'] ) && trim( $assoc_args['agencies'] ) !== '' ) {
+            $agency_filter_raw = trim( $assoc_args['agencies'] );
+        }
+
+        $agency_filter = array_values(
+            array_filter(
+                array_map(
+                    function ( string $agency ): string {
+                        return strtoupper( trim( $agency ) );
+                    },
+                    explode( ',', $agency_filter_raw )
+                )
+            )
+        );
+        $export_all_agencies = in_array( 'ALL', $agency_filter, true );
+        if ( empty( $agency_filter ) ) {
+            $agency_filter = array( 'ALL' );
+            $export_all_agencies = true;
+        }
+        WP_CLI::log( 'Agency export mode: ' . ( $export_all_agencies ? 'all' : implode( ', ', $agency_filter ) ) );
 
         // Set the directory path
         $wp_uploads_dir = wp_get_upload_dir();
@@ -653,14 +772,22 @@ if ( class_exists( 'PDF_Media_Scrape_And_Import_Command' ) ) {
 
             // Get all PDF files in the directory and normalize paths
             $all_pdf_files = glob( $directory_path . '*.pdf' );
+            $total_pdf_files_before_filter = count( $all_pdf_files );
+            $all_pdf_files = jb_library_filter_pdf_files_by_stockcode_terms( $all_pdf_files, $stockcode_prefixes );
 
             if ( empty( $all_pdf_files ) ) {
-                WP_CLI::log( "No PDF files found in the specified directory: {$directory_path}" );
+                WP_CLI::log( "No PDF files found in the specified directory: {$directory_path}" . ( ! empty( $stockcode_prefixes ) ? ' for stockcode terms ' . jb_library_stockcode_filter_label( $stockcode_prefixes ) : '' ) );
                 return;
+            }
+            if ( ! empty( $stockcode_prefixes ) ) {
+                WP_CLI::log( 'Stockcode terms filter matched ' . count( $all_pdf_files ) . " of {$total_pdf_files_before_filter} PDF files." );
             }
 
             // Load list of already-checked files for this transport scan
             $checked_option_key = 'one-time-script-sds-transport-checked-files';
+            if ( ! empty( $stockcode_prefixes ) ) {
+                $checked_option_key .= '-' . strtolower( implode( '-', $stockcode_prefixes ) );
+            }
             $checked_files = get_option( $checked_option_key, array() );
             if ( $reset_tracking ) {
                 $checked_files = array();
@@ -707,36 +834,118 @@ if ( class_exists( 'PDF_Media_Scrape_And_Import_Command' ) ) {
                     continue;
                 }
 
-                $scraper = new JB_PDF_Scraper( $file );
-                $contains_search_term = false;
+	                $scraper = new JB_PDF_Scraper( $file );
+	                $transport_extractor = new JB_PDF_Transport_Extractor( $scraper->cleaned_text );
+	                $transport_section = $transport_extractor->get_section();
+	                $is_pdf_text_readable = $scraper->is_pdf_readable;
+	                $has_transport_section = '' !== trim( $transport_section );
+	                $contains_search_term = false;
 
-                if ( $scraper->is_pdf_readable ) {
-                    $contains_search_term = stripos( $scraper->cleaned_text, $search_term ) !== false;
-                    if ( $contains_search_term ) {
-                        $transport_files[] = $file;
-                    }
-                } else {
-                    WP_CLI::log( "No readable text found in file {$file}." );
+	                if ( $is_pdf_text_readable && $has_transport_section ) {
+	                    $contains_search_term = stripos( $transport_section, $search_term ) !== false;
+	                    if ( $contains_search_term ) {
+	                        $transport_files[] = $file;
+	                    }
+	                } elseif ( ! $is_pdf_text_readable ) {
+	                    WP_CLI::log( "No readable text found in file {$file}." );
+	                } else {
+	                    WP_CLI::log( "No readable transport section found in file {$file}." );
+	                }
+
+	                $transport_records = ( $is_pdf_text_readable && $has_transport_section ) ? $transport_extractor->get_transport_records() : array();
+	                if ( empty( $transport_records ) ) {
+	                    $transport_records = array(
+	                        array(
+	                            'agency'                 => '',
+	                            'agency_alias'           => '',
+	                            'transport_types'        => '',
+	                            'jurisdiction'           => '',
+	                            'regulated_material'     => false,
+	                            'un_code'                => '',
+	                            'shipping_name'          => '',
+	                            'hazard_class'           => '',
+	                            'packing_group'          => '',
+	                            'shipping_class'         => '',
+	                            'hazardous_terms'        => '',
+	                            'transport_section'      => $transport_section,
+	                        ),
+	                    );
+	                }
+
+	                    $file_name = basename( $file );
+	                    $product_id = preg_replace( '/_SDS\.pdf$/i', '', $file_name );
+	                    if ( $product_id === $file_name ) {
+	                        $product_id = pathinfo( $file_name, PATHINFO_FILENAME );
+	                    }
+
+	                    if ( ! $export_all_agencies ) {
+	                        $selected_transport_record = null;
+	                        foreach ( $agency_filter as $agency ) {
+	                            foreach ( $transport_records as $transport_record ) {
+	                                if ( strtoupper( $transport_record['agency'] ?? '' ) === $agency ) {
+	                                    $selected_transport_record = $transport_record;
+	                                    break 2;
+	                                }
+	                            }
+	                        }
+
+	                        if ( null === $selected_transport_record ) {
+	                            $selected_transport_record = array(
+	                                'agency'                 => '',
+	                                'agency_alias'           => '',
+	                                'transport_types'        => '',
+	                                'jurisdiction'           => '',
+	                                'regulated_material'     => false,
+	                                'un_code'                => '',
+	                                'shipping_name'          => '',
+	                                'hazard_class'           => '',
+	                                'packing_group'          => '',
+	                                'shipping_class'         => '',
+	                                'hazardous_terms'        => '',
+	                                'transport_section'      => $transport_section,
+	                            );
+	                        }
+
+	                        $transport_records = array( $selected_transport_record );
+	                    }
+
+	                foreach ( $transport_records as $transport_record ) {
+	                    $missing_fields = array();
+	                    $required_fields = array( 'agency' );
+	                    if ( ! empty( $transport_record['regulated_material'] ) ) {
+	                        $required_fields = array_merge( $required_fields, array( 'un_code', 'shipping_name', 'hazard_class', 'packing_group' ) );
+	                        if ( isset( $transport_record['hazard_class'] ) && preg_match( '/^2(?:\.|$)/', (string) $transport_record['hazard_class'] ) ) {
+	                            $required_fields = array_diff( $required_fields, array( 'packing_group' ) );
+	                        }
+	                    }
+
+	                    foreach ( $required_fields as $field_key ) {
+	                        if ( empty( $transport_record[ $field_key ] ) ) {
+	                            $missing_fields[] = $field_key;
+	                        }
+	                    }
+
+	                    $transport_rows[] = array(
+	                        'file_path'             => $file,
+	                        'product_id'            => $product_id,
+	                        'is_pdf_text_readable'  => $is_pdf_text_readable ? 'Yes' : 'No',
+	                        'has_transport_section' => $has_transport_section ? 'Yes' : 'No',
+	                        'contains_search_term'  => $contains_search_term ? 'Yes' : 'No',
+	                        'agency'                => $transport_record['agency'] ?? '',
+	                        'agency_alias'          => $transport_record['agency_alias'] ?? '',
+	                        'transport_types'       => $transport_record['transport_types'] ?? '',
+	                        'jurisdiction'          => $transport_record['jurisdiction'] ?? '',
+	                        'regulated_material'    => ! empty( $transport_record['regulated_material'] ) ? 'Yes' : 'No',
+	                        'un_code'               => $transport_record['un_code'] ?? '',
+	                        'shipping_name'         => $transport_record['shipping_name'] ?? '',
+	                        'hazard_class'          => $transport_record['hazard_class'] ?? '',
+	                        'packing_group'         => $transport_record['packing_group'] ?? '',
+	                        'shipping_class'        => $transport_record['shipping_class'] ?? '',
+	                        'hazardous_terms'       => $transport_record['hazardous_terms'] ?? '',
+	                        'transport_section'     => $transport_record['transport_section'] ?? $transport_section,
+	                        'missing_fields'        => implode( ', ', $missing_fields ),
+                    );
                 }
-
-                $transport_details = $scraper->get_sds_transport_details();
-                $missing_fields = array();
-                foreach ( $transport_details as $field_key => $field_value ) {
-                    if ( '' === $field_value ) {
-                        $missing_fields[] = $field_key;
-                    }
-                }
-
-                $transport_rows[] = array_merge(
-                    array(
-                        'file_path'             => $file,
-                        'file_name'             => basename( $file ),
-                        'is_pdf_readable'       => $scraper->is_pdf_readable ? 'Yes' : 'No',
-                        'contains_search_term'  => $contains_search_term ? 'Yes' : 'No',
-                        'missing_fields'        => implode( ', ', $missing_fields ),
-                    ),
-                    $transport_details
-                );
 
                 // Mark this file as checked and persist immediately
                 $checked_files[] = $file;
@@ -751,26 +960,34 @@ if ( class_exists( 'PDF_Media_Scrape_And_Import_Command' ) ) {
             }
 
             if ( ! empty( $transport_rows ) ) {
-                $csv_file_path = JB_LIBRARY_MAINTENANCE_PLUGIN_DIR . 'logs/transport-scan-' . gmdate( 'Ymd-His', time() ) . '.csv';
+                $agency_file_suffix = $export_all_agencies ? 'all' : strtolower( implode( '-', $agency_filter ) );
+                $stockcode_file_suffix = ! empty( $stockcode_prefixes ) ? '-stockcode-' . strtolower( implode( '-', $stockcode_prefixes ) ) : '';
+                $csv_file_path = JB_LIBRARY_MAINTENANCE_PLUGIN_DIR . 'logs/transport-scan-' . $agency_file_suffix . $stockcode_file_suffix . '-' . gmdate( 'Ymd-His', time() ) . '.csv';
                 $csv_handle = fopen( $csv_file_path, 'x' );
                 if ( $csv_handle ) {
                     WP_CLI\Utils\write_csv(
                         $csv_handle,
                         $transport_rows,
-                        array(
-                            'file_path',
-                            'file_name',
-                            'is_pdf_readable',
-                            'contains_search_term',
-                            'un_code',
-                            'hazardous_description',
-                            'hazardous_class_number',
-                            'packing_group',
-                            'shipping_class',
-                            'nmfc_code',
-                            'transport_section',
-                            'missing_fields',
-                        )
+	                        array(
+		                            'file_path',
+		                            'product_id',
+		                            'is_pdf_text_readable',
+		                            'has_transport_section',
+	                            'contains_search_term',
+	                            'agency',
+	                            'agency_alias',
+	                            'transport_types',
+	                            'jurisdiction',
+	                            'regulated_material',
+		                            'un_code',
+		                            'shipping_name',
+	                            'hazard_class',
+	                            'packing_group',
+	                            'shipping_class',
+	                            'hazardous_terms',
+	                            'transport_section',
+	                            'missing_fields',
+	                        )
                     );
                     fclose( $csv_handle );
                     WP_CLI::log( "Transport details written to CSV file: {$csv_file_path}" );
@@ -828,6 +1045,7 @@ if ( class_exists( 'PDF_Media_Scrape_And_Import_Command' ) ) {
      * - Arguments include:
      *  --subdirectory-path - Subdirectory path for the group of PDFs to be processed
      *  --batch-size - Number of PDF files to process in each batch (default: 100)
+     *  --stockcode-terms - Stockcode prefix terms to process, such as "20" or "20,CR"
      * @return void
      */
     function check_pdf_media_tds_content( array $args, array $assoc_args = []): void {
@@ -839,6 +1057,11 @@ if ( class_exists( 'PDF_Media_Scrape_And_Import_Command' ) ) {
             $batch_size = 100;
         }
         WP_CLI::confirm( "Batch size set to: {$batch_size}. Continue?", 'yes' );
+
+        $stockcode_prefixes = jb_library_get_stockcode_terms_filter( $assoc_args );
+        if ( ! empty( $stockcode_prefixes ) ) {
+            WP_CLI::log( 'Stockcode terms filter: ' . jb_library_stockcode_filter_label( $stockcode_prefixes ) );
+        }
 
         // Set the directory path
         $wp_uploads_dir = wp_get_upload_dir();
@@ -854,6 +1077,8 @@ if ( class_exists( 'PDF_Media_Scrape_And_Import_Command' ) ) {
 
         // Get all PDF files in the directory
         $pdf_files = glob( $directory_path . '*.pdf' );
+        $total_pdf_files_before_filter = count( $pdf_files );
+        $pdf_files = jb_library_filter_pdf_files_by_stockcode_terms( $pdf_files, $stockcode_prefixes );
 
         if ( ! empty( $pdf_files ) ) {
             $problem_files = 0;
@@ -861,6 +1086,9 @@ if ( class_exists( 'PDF_Media_Scrape_And_Import_Command' ) ) {
             $unreadable_text = array();
             $missing_tds_info = array();
             $number_of_pdfs = count( $pdf_files );
+            if ( ! empty( $stockcode_prefixes ) ) {
+                WP_CLI::log( "Stockcode terms filter matched {$number_of_pdfs} of {$total_pdf_files_before_filter} PDF files." );
+            }
 
             $pdf_files_batch = array_slice( $pdf_files, 0, $batch_size, true );
 
