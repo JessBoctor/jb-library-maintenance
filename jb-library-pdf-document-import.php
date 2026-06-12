@@ -558,6 +558,214 @@ if ( class_exists( 'PDF_Media_Scrape_And_Import_Command' ) ) {
     }
     WP_CLI::add_command( 'pdf-media-import-delete-logs', 'delete_pdf_media_import_log_files' );
 
+    function jb_library_update_dlp_document_links( $args, $assoc_args ): void {
+        global $wpdb;
+
+        $old_url = isset( $assoc_args['old-url'] ) ? trim( $assoc_args['old-url'] ) : '';
+        $new_url = isset( $assoc_args['new-url'] ) ? trim( $assoc_args['new-url'] ) : '';
+        $dry_run = isset( $assoc_args['dry-run'] );
+        $limit = isset( $assoc_args['limit'] ) && is_numeric( $assoc_args['limit'] ) ? absint( $assoc_args['limit'] ) : 0;
+
+        if ( $old_url === '' || $new_url === '' ) {
+            WP_CLI::error( 'Please provide both --old-url and --new-url.' );
+            return;
+        }
+
+        $like = '%' . $wpdb->esc_like( $old_url ) . '%';
+        $query = $wpdb->prepare( "SELECT meta_id, post_id, meta_value FROM {$wpdb->postmeta} WHERE meta_key = %s AND meta_value LIKE %s", '_dlp_direct_link_url', $like );
+        if ( $limit > 0 ) {
+            $query .= ' LIMIT ' . $limit;
+        }
+
+        $rows = $wpdb->get_results( $query );
+
+        if ( empty( $rows ) ) {
+            WP_CLI::log( 'No DLP document direct link metadata found matching the specified old URL.' );
+            return;
+        }
+
+        $updated = 0;
+        foreach ( $rows as $row ) {
+            if ( strpos( $row->meta_value, $old_url ) === false ) {
+                continue;
+            }
+            $new_value = str_replace( $old_url, $new_url, $row->meta_value );
+            if ( $new_value === $row->meta_value ) {
+                continue;
+            }
+            WP_CLI::log( sprintf( 'Post ID %d: %s => %s', $row->post_id, $row->meta_value, $new_value ) );
+            if ( ! $dry_run ) {
+                $wpdb->update(
+                    $wpdb->postmeta,
+                    [ 'meta_value' => $new_value ],
+                    [ 'meta_id' => $row->meta_id ],
+                    [ '%s' ],
+                    [ '%d' ]
+                );
+            }
+            $updated++;
+        }
+
+        if ( $dry_run ) {
+            WP_CLI::success( sprintf( 'Dry run complete. %d matching DLP document links would be updated.', $updated ) );
+        } else {
+            WP_CLI::success( sprintf( 'Updated %d DLP document direct link values.', $updated ) );
+        }
+    }
+
+    WP_CLI::add_command( 'dlp-update-document-links', 'jb_library_update_dlp_document_links' );
+
+    /**
+     * Update stored DLP attachment source metadata.
+     *
+     * Usage:
+     *  wp dlp-update-attachment-sources --blog-id=2 --dry-run
+     *  wp dlp-update-attachment-sources --blog-id=2
+     *  wp dlp-update-attachment-sources --old-value="/uploads/TDS/" --new-value="/uploads/product-documentation/TDS/" --blog-id=2 --dry-run
+     */
+    function jb_library_update_dlp_attachment_sources( $args, $assoc_args ): void {
+        global $wpdb;
+
+        $old_value = isset( $assoc_args['old-value'] ) ? trim( $assoc_args['old-value'] ) : '';
+        $new_value = isset( $assoc_args['new-value'] ) ? trim( $assoc_args['new-value'] ) : '';
+        $blog_id   = isset( $assoc_args['blog-id'] ) && is_numeric( $assoc_args['blog-id'] ) ? absint( $assoc_args['blog-id'] ) : get_current_blog_id();
+        $dry_run   = isset( $assoc_args['dry-run'] );
+        $limit     = isset( $assoc_args['limit'] ) && is_numeric( $assoc_args['limit'] ) ? absint( $assoc_args['limit'] ) : 0;
+
+        if ( ( '' === $old_value && '' !== $new_value ) || ( '' !== $old_value && '' === $new_value ) ) {
+            WP_CLI::error( 'Please provide both --old-value and --new-value, or omit both to update SDS and TDS defaults.' );
+            return;
+        }
+
+        $replacement_pairs = array();
+        if ( '' !== $old_value && '' !== $new_value ) {
+            $replacement_pairs[] = array(
+                'old' => $old_value,
+                'new' => $new_value,
+            );
+        } else {
+            $replacement_pairs = array(
+                array(
+                    'old' => '/uploads/SDS/',
+                    'new' => '/uploads/product-documentation/SDS/',
+                ),
+                array(
+                    'old' => '/uploads/TDS/',
+                    'new' => '/uploads/product-documentation/TDS/',
+                ),
+                array(
+                    'old' => '/uploads/sites/2/SDS/',
+                    'new' => '/uploads/product-documentation/SDS/',
+                ),
+                array(
+                    'old' => '/uploads/sites/2/TDS/',
+                    'new' => '/uploads/product-documentation/TDS/',
+                ),
+            );
+        }
+
+        if ( is_multisite() && $blog_id !== get_current_blog_id() ) {
+            switch_to_blog( $blog_id );
+        }
+
+        $like_clauses = array();
+        foreach ( $replacement_pairs as $replacement_pair ) {
+            $like_clauses[] = $wpdb->prepare( 'meta_value LIKE %s', '%' . $wpdb->esc_like( $replacement_pair['old'] ) . '%' );
+        }
+
+        $query = $wpdb->prepare(
+            "SELECT meta_id, post_id, meta_value
+            FROM {$wpdb->postmeta}
+            WHERE meta_key = %s
+            AND (" . implode( ' OR ', $like_clauses ) . ")
+            ORDER BY post_id",
+            '_dlp_attachment_source'
+        );
+        if ( $limit > 0 ) {
+            $query .= ' LIMIT ' . $limit;
+        }
+
+        $rows = $wpdb->get_results( $query );
+
+        if ( empty( $rows ) ) {
+            WP_CLI::log( 'No DLP attachment source metadata found matching the specified old value.' );
+            if ( is_multisite() && ms_is_switched() ) {
+                restore_current_blog();
+            }
+            return;
+        }
+
+        $updated = 0;
+        foreach ( $rows as $row ) {
+            $replaced_value = $row->meta_value;
+            foreach ( $replacement_pairs as $replacement_pair ) {
+                $replaced_value = str_ireplace( $replacement_pair['old'], $replacement_pair['new'], $replaced_value );
+            }
+
+            if ( $replaced_value === $row->meta_value ) {
+                continue;
+            }
+
+            WP_CLI::log( sprintf( 'Post ID %d: %s => %s', $row->post_id, $row->meta_value, $replaced_value ) );
+            if ( ! $dry_run ) {
+                $wpdb->update(
+                    $wpdb->postmeta,
+                    array( 'meta_value' => $replaced_value ),
+                    array( 'meta_id' => $row->meta_id ),
+                    array( '%s' ),
+                    array( '%d' )
+                );
+            }
+            $updated++;
+        }
+
+        if ( is_multisite() && ms_is_switched() ) {
+            restore_current_blog();
+        }
+
+        if ( $dry_run ) {
+            WP_CLI::success( sprintf( 'Dry run complete. %d DLP attachment source values would be updated.', $updated ) );
+        } else {
+            WP_CLI::success( sprintf( 'Updated %d DLP attachment source values.', $updated ) );
+        }
+    }
+
+    WP_CLI::add_command( 'dlp-update-attachment-sources', 'jb_library_update_dlp_attachment_sources' );
+
+    /**
+     * Clear Document Library Pro table data transients.
+     *
+     * Usage:
+     *  wp dlp-clear-table-cache --blog-id=2
+     */
+    function jb_library_clear_dlp_table_cache( $args, $assoc_args ): void {
+        global $wpdb;
+
+        $blog_id = isset( $assoc_args['blog-id'] ) && is_numeric( $assoc_args['blog-id'] ) ? absint( $assoc_args['blog-id'] ) : get_current_blog_id();
+
+        if ( is_multisite() && $blog_id !== get_current_blog_id() ) {
+            switch_to_blog( $blog_id );
+        }
+
+        $deleted = $wpdb->query(
+            $wpdb->prepare(
+                "DELETE FROM {$wpdb->options}
+                WHERE option_name LIKE %s
+                OR option_name LIKE %s",
+                '\_transient\_dlp\_%\_data',
+                '\_transient\_timeout\_dlp\_%\_data'
+            )
+        );
+
+        if ( is_multisite() && ms_is_switched() ) {
+            restore_current_blog();
+        }
+
+        WP_CLI::success( sprintf( 'Deleted %d Document Library Pro table cache transient rows.', (int) $deleted ) );
+    }
+
+    WP_CLI::add_command( 'dlp-clear-table-cache', 'jb_library_clear_dlp_table_cache' );
+
     /**
      * Check that the PDF parser is able to read the content of PDF files in a specified directory.
      *
