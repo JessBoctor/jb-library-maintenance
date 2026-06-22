@@ -61,6 +61,39 @@ A log of files that failed to import should be printed. If you aren’t sure if 
 
 It will print any files which do not have corresponding `dlp_document` or `attachment` posts.
 
+## Backfill Existing Document Content
+If existing Document Library Pro posts have empty `post_content`, use the backfill command to try extracting text from the related PDF and updating the existing document post.
+
+Start with a dry run:
+
+`wp dlp-backfill-document-content --url=www.revchem.local --limit=100`
+
+Run a specific document:
+
+`wp dlp-backfill-document-content --url=www.revchem.local --post-id=40602`
+
+Use the local fallback parser/OCR path in small batches:
+
+`wp dlp-backfill-document-content --url=www.revchem.local --use-fallback --limit=25`
+
+Update posts for real only after reviewing the CSV log:
+
+`wp dlp-backfill-document-content --url=www.revchem.local --for-real --batch-size=100`
+
+For concurrent or resumable runs, split the work by non-overlapping post ID ranges:
+
+`wp dlp-backfill-document-content --url=www.revchem.local --use-fallback --for-real --start-post-id=29900 --end-post-id=33000`
+
+Safety behavior:
+
+- The command only targets `dlp_document` posts with empty content by default.
+- Existing content is not overwritten unless `--force` is used.
+- The bundled PHP PDF parser is used by default; local fallback parsers only run when `--use-fallback` is passed.
+- Use `--start-post-id` and `--end-post-id` for concurrent runs; avoid concurrent `--limit` batches because they can select the same empty posts.
+- Parsed text must pass a minimum length and document-language usability check before it is written.
+- Every run writes a CSV log to `wp-content/plugins/jb-library-maintenance/logs/`.
+- Use `--min-chars=<number>` to adjust the minimum cleaned text length; the default is `200`.
+
 ## Optional PDF text fallback hook
 The PDF scraper first tries to read PDF text with the bundled PHP PDF parser. Some SDS files do not parse cleanly with that parser, so the scraper includes an optional hook for a local fallback parser:
 
